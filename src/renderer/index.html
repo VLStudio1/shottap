@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self';"
+    />
+    <title>ShotTap</title>
+    <link rel="icon" href="./assets/shottap-mark.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app" id="app">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand">
+          <picture class="brand-logo">
+            <source srcset="./assets/shottap-wordmark-dark-ui.png" media="(prefers-color-scheme: dark)" />
+            <img src="./assets/shottap-wordmark-light-ui.png" alt="ShotTap" />
+          </picture>
+          <span class="brand-rail-mark" aria-hidden="true">
+            <img src="./assets/shottap-mark.png" alt="" />
+          </span>
+          <span class="brand-shortcut" id="brandShortcut" title="Screenshot Area shortcut"></span>
+        </div>
+
+        <button class="quick-capture" id="quickCapture" type="button">
+          <span class="quick-capture-icon" id="quickCaptureIcon" aria-hidden="true"></span>
+          <span class="quick-capture-label">Quick Capture</span>
+          <kbd id="quickCaptureShortcut"></kbd>
+        </button>
+
+        <nav class="nav" id="nav" aria-label="Sections"></nav>
+
+        <div class="sidebar-footer">
+          <button class="storage-card" id="storageCard" type="button" title="Open the ShotTap folder">
+            <span class="storage-icon" id="storageIcon" aria-hidden="true"></span>
+            <span class="storage-text">
+              <strong>Save location</strong>
+              <span id="storagePath">—</span>
+            </span>
+          </button>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <div class="recording-bar" id="recordingBar" hidden role="status">
+          <span class="recording-dot" aria-hidden="true"></span>
+          <span class="recording-label">Recording</span>
+          <span class="recording-time" id="recordingTime">00:00</span>
+          <button class="button danger small" id="stopRecordingButton" type="button">
+            <span id="stopRecordingIcon" aria-hidden="true"></span>
+            Stop
+          </button>
+        </div>
+        <main class="main" id="main" tabindex="-1"></main>
+      </div>
+
+      <aside class="inspector" id="inspector" hidden aria-label="Details"></aside>
+    </div>
+
+    <div class="toast-host" id="toastHost" aria-live="polite" aria-atomic="false"></div>
+
+    <div class="overlay" id="editorOverlay" hidden>
+      <div class="editor" role="dialog" aria-modal="true" aria-label="Edit screenshot">
+        <header class="editor-header">
+          <div class="editor-tools" id="editorTools"></div>
+          <div class="editor-settings">
+            <label class="editor-field">
+              <span>Colour</span>
+              <input id="editorColor" type="color" value="#e5484d" aria-label="Pen colour" />
+            </label>
+            <label class="editor-field">
+              <span>Size</span>
+              <input id="editorSize" type="range" min="2" max="48" value="8" aria-label="Brush size" />
+              <output id="editorSizevalue">8</output>
+            </label>
+          </div>
+          <div class="editor-actions" id="editorActions"></div>
+        </header>
+        <div class="editor-canvas-wrap" id="editorCanvasWrap">
+          <canvas id="editorCanvas"></canvas>
+        </div>
+        <footer class="editor-footer">
+          <span id="editorMeta"></span>
+          <span class="editor-hint">Pencil and eraser draw on a separate layer — the original file is only overwritten when you save.</span>
+        </footer>
+      </div>
+    </div>
+
+    <script src="./icons.js"></script>
+    <script src="./format.js"></script>
+    <script src="./editor.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data:;"
+    />
+    <title>Select area</title>
+    <link rel="stylesheet" href="./selection.css" />
+  </head>
+  <body data-mode="screenshot">
+    <div class="crosshair crosshair-x" id="crosshairX" hidden></div>
+    <div class="crosshair crosshair-y" id="crosshairY" hidden></div>
+
+    <div class="mode-banner" id="modeBanner" role="status">
+      <span class="mode-icon" id="modeIcon" aria-hidden="true"></span>
+      <span class="mode-text">
+        <strong id="modeTitle">Screenshot Area</strong>
+        <span id="modeHint">Drag to capture a still image · Esc cancels</span>
+      </span>
+    </div>
+
+    <div class="selection" id="selection" hidden>
+      <div class="selection-size" id="selectionSize"></div>
+    </div>
+
+    <div class="edge-note" id="edgeNote" hidden>Selections stay on one display</div>
+
+    <script src="./selection.js"></script>
+  </body>
+</html>
