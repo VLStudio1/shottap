@@ -1,0 +1,124 @@
+name: Bug report
+description: Report something that is not working correctly in ShotTap.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove or redact sensitive information from screenshots, recordings, and logs before attaching them.
+  - type: input
+    id: version
+    attributes:
+      label: ShotTap version
+      description: Example: 0.5.0
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Example: Windows 11 23H2, Windows 10 22H2
+    validations:
+      required: true
+  - type: dropdown
+    id: install-type
+    attributes:
+      label: Install type
+      options:
+        - Installer
+        - Portable
+        - Running from source
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: monitor-count
+    attributes:
+      label: Number of monitors
+      description: Example: 1, 2, 3
+  - type: textarea
+    id: monitor-resolutions
+    attributes:
+      label: Monitor resolutions
+      description: Include each monitor's resolution if relevant.
+      placeholder: |
+        Monitor 1: 1920x1080
+        Monitor 2: 2560x1440
+  - type: textarea
+    id: display-scaling
+    attributes:
+      label: Windows display scaling / DPI
+      description: Include scaling percentages for each monitor if relevant.
+      placeholder: |
+        Monitor 1: 100%
+        Monitor 2: 150%
+  - type: dropdown
+    id: capture-kind
+    attributes:
+      label: What were you doing?
+      options:
+        - Screenshot
+        - Recording
+        - Clipboard / Copy All
+        - Library / trash / favorites
+        - Editor
+        - Settings / hotkeys
+        - Other
+  - type: dropdown
+    id: capture-mode
+    attributes:
+      label: Area or full-screen?
+      options:
+        - Area
+        - Full-screen
+        - Not applicable
+        - Not sure
+  - type: dropdown
+    id: system-audio
+    attributes:
+      label: System audio
+      options:
+        - Enabled
+        - Disabled
+        - Not applicable
+        - Not sure
+  - type: dropdown
+    id: microphone
+    attributes:
+      label: Microphone
+      options:
+        - Enabled
+        - Disabled
+        - Not applicable
+        - Not sure
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Please include the exact actions, shortcuts, or buttons used.
+      placeholder: |
+        1. Open ShotTap
+        2. Press Ctrl+Alt+4
+        3. Drag a selection
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or additional context
+      description: Please remove or redact sensitive information before attaching logs, screenshots, or recordings.
