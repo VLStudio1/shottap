@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 This project follows the spirit of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.5.0] - Unreleased
+## [0.5.0] - 2026-08-24
 
 ### Added
 
