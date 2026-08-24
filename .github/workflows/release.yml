@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Build Windows Draft Release
+    runs-on: windows-latest
+
+    env:
+      NODE_VERSION: 22
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Derive release version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ github.ref_name }}"
+
+          if (-not $tag.StartsWith("v")) {
+            throw "Release workflow expected a v* tag, got: $tag"
+          }
+
+          "RELEASE_VERSION=$($tag.Substring(1))" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Windows installers
+        env:
+          # Keep today's build unsigned. Later code signing can be enabled with
+          # electron-builder secrets such as WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run dist
+
+      - name: Generate SHA256 checksums
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "$env:RELEASE_VERSION"
+          $artifacts = @(
+            "dist/ShotTap-Setup-$version.exe",
+            "dist/ShotTap-Portable-$version.exe"
+          )
+
+          foreach ($artifact in $artifacts) {
+            if (-not (Test-Path -LiteralPath $artifact)) {
+              throw "Expected release artifact was not found: $artifact"
+            }
+          }
+
+          $lines = foreach ($artifact in $artifacts) {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifact).Hash.ToLowerInvariant()
+            "$hash  $(Split-Path -Leaf $artifact)"
+          }
+
+          $lines | Set-Content -LiteralPath "dist/SHA256SUMS.txt" -Encoding ascii
+
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "${{ github.ref_name }}"
+          $version = "$env:RELEASE_VERSION"
+          $installer = "dist/ShotTap-Setup-$version.exe"
+          $portable = "dist/ShotTap-Portable-$version.exe"
+          $checksums = "dist/SHA256SUMS.txt"
+
+          gh release create $tag `
+            $installer `
+            $portable `
+            $checksums `
+            --draft `
+            --title "ShotTap $version" `
+            --notes "Draft release for ShotTap $version. Inspect binaries and checksums before publishing."

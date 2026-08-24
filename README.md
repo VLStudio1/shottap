@@ -157,6 +157,12 @@ npm run docs:screenshots
 
 Regenerates the public README and GitHub media screenshots using temporary app data, synthetic demo fixtures, real ShotTap windows, and the repository backdrop in `docs/images`.
 
+## Release Automation
+
+GitHub Actions can build a draft Windows release from tags such as `v0.5.0`. The release workflow installs dependencies, runs the Node test suite, builds the installer and portable executable, writes `SHA256SUMS.txt`, and creates a draft GitHub release for manual inspection before publishing.
+
+Current Windows builds are unsigned. Future code signing should be added through GitHub secrets consumed by Electron Builder, such as `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`; signing certificates and passwords must never be stored in the repository.
+
 ## Project Structure
 
 | Path | Purpose |

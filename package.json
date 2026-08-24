@@ -46,10 +46,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ShotTap"
+      "shortcutName": "ShotTap",
+      "artifactName": "ShotTap-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "ShotTap Portable ${version}.${ext}"
+      "artifactName": "ShotTap-Portable-${version}.${ext}"
     }
   },
   "devDependencies": {
