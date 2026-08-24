@@ -79,10 +79,10 @@
     }
   ];
 
-  const ACTION_GROUPS = [
+  const QUICK_ACTION_GROUPS = [
     { kind: "screenshot", title: "Screenshot", ids: ["screenshotArea", "screenshotFullScreen"] },
     { kind: "record", title: "Record", ids: ["recordArea", "recordFullScreen"] },
-    { kind: "utility", title: "Utility", ids: ["copyAll", "clearAll", "emptyTrash"] }
+    { kind: "utility", title: "Utility", ids: ["copyAll"] }
   ];
 
   const state = {
@@ -312,7 +312,7 @@
           <button class="button" type="button" data-navigate="hotkeys">${icons.icon("keyboard", { size: 16 })} Customize Hotkeys</button>
         </div>
         <div class="action-groups">
-          ${ACTION_GROUPS.map(
+          ${QUICK_ACTION_GROUPS.map(
             (group) => `
             <div class="action-group" data-kind="${group.kind}">
               <div class="action-group-title">

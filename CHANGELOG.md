@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 This project follows the spirit of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.2] - 2026-08-24
+
+### Changed
+
+- Kept Clear All and Empty Trash shortcuts out of the Quick Capture dashboard so the main capture tab matches the public screenshots.
+
 ## [0.5.1] - 2026-08-24
 
 ### Added

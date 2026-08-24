@@ -9,7 +9,7 @@ on:
       tag:
         description: "Release tag to build"
         required: true
-        default: "v0.5.1"
+        default: "v0.5.2"
 
 permissions:
   contents: write
@@ -110,6 +110,7 @@ jobs:
             "* Global customizable hotkeys"
             "* Instant clipboard copy"
             "* Cleanup shortcuts for Clear All and Empty Trash"
+            "* Cleaner Quick Capture dashboard"
             ""
             "## Recording"
             ""
