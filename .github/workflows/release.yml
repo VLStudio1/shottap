@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build"
+        required: true
+        default: "v0.5.0"
 
 permissions:
   contents: write
@@ -19,6 +25,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -30,7 +38,11 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $tag = "${{ github.ref_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ inputs.tag }}"
+          } else {
+            $tag = "${{ github.ref_name }}"
+          }
 
           if (-not $tag.StartsWith("v")) {
             throw "Release workflow expected a v* tag, got: $tag"
@@ -49,7 +61,7 @@ jobs:
           # Keep today's build unsigned. Later code signing can be enabled with
           # electron-builder secrets such as WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npm run dist
+        run: npm run dist -- --publish never
 
       - name: Generate SHA256 checksums
         shell: pwsh
