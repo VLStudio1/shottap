@@ -35,11 +35,23 @@ Run the Electron self-test when your environment supports windows, hotkeys, capt
 npm run selftest
 ```
 
+Regenerate public README screenshots:
+
+```bash
+npm run docs:screenshots
+```
+
 Build the Windows release artifacts:
 
 ```bash
 npm run dist
 ```
+
+## Releases
+
+GitHub Actions builds draft Windows releases from version tags such as `v0.5.0`. The release workflow installs dependencies, runs tests, builds the installer and portable executable, writes `SHA256SUMS.txt`, and creates a draft release for manual inspection before publishing.
+
+Current Windows builds are unsigned. Future code signing should use GitHub secrets consumed by Electron Builder, such as `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`. Signing certificates and passwords must never be stored in the repository.
 
 ## UI Changes
 

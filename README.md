@@ -128,10 +128,7 @@ The portable build is intended for running ShotTap without a normal Windows inst
 
 ## Build From Source
 
-Prerequisites:
-
-- Windows
-- Node.js and npm
+For developers who want to run ShotTap locally:
 
 ```bash
 git clone https://github.com/VLStudio1/shottap.git
@@ -146,25 +143,7 @@ npm start
 npm test
 ```
 
-Runs the Node test suite for shared logic, library behavior, settings migration, range handling, and capture geometry.
-
-```bash
-npm run selftest
-```
-
-Runs ShotTap's Electron self-test against a temporary profile. This exercises real capture flows, global shortcuts, clipboard behavior, recordings, library views, themes, editor behavior, and layout checks. It requires an environment where Electron can create windows and register hotkeys.
-
-```bash
-npm run docs:screenshots
-```
-
-Regenerates the public README and GitHub media screenshots using temporary app data, synthetic demo fixtures, real ShotTap windows, and the repository backdrop in `docs/images`.
-
-## Release Automation
-
-GitHub Actions can build a draft Windows release from tags such as `v0.5.0`. The release workflow installs dependencies, runs the Node test suite, builds the installer and portable executable, writes `SHA256SUMS.txt`, and creates a draft GitHub release for manual inspection before publishing.
-
-Current Windows builds are unsigned. Future code signing should be added through GitHub secrets consumed by Electron Builder, such as `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD`; signing certificates and passwords must never be stored in the repository.
+More development and release notes are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Project Structure
 
