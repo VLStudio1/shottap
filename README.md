@@ -6,7 +6,7 @@
 
 Fast screen capture without breaking your flow.
 
-ShotTap is a keyboard-first screenshot and screen-recording tool for Windows, built for fast capture, instant clipboard workflows, and local organization without interrupting what you're doing.
+ShotTap is a keyboard-first screenshot and screen-recording tool for Windows, built for fast capture, instant clipboard workflows, cleanup shortcuts, and local organization without interrupting what you're doing.
 
 [![CI](https://github.com/VLStudio1/shottap/actions/workflows/ci.yml/badge.svg)](https://github.com/VLStudio1/shottap/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -33,6 +33,7 @@ ShotTap is built for people who capture often and want the app to stay out of th
 - Global keyboard shortcuts
 - Instant clipboard copy
 - Multi-capture clipboard workflows with Copy All
+- Shortcut-driven queue clearing and trash cleanup
 
 ### Recording
 
@@ -112,6 +113,8 @@ Default shortcuts are chosen to avoid common Windows capture shortcut conflicts.
 | Record Area | `Ctrl+Alt+6` |
 | Record Full Screen | `Ctrl+Alt+7` |
 | Copy All | `Ctrl+Alt+3` |
+| Clear All | `Ctrl+Alt+8` |
+| Empty Trash | `Ctrl+Alt+9` |
 
 ## Privacy
 

@@ -24,27 +24,31 @@ test("valid accelerators are accepted and bare keys are rejected", () => {
   assert.equal(settings.isValidAccelerator(null), false);
 });
 
-test("a v1 settings file keeps its shortcuts and gains the new ones", () => {
-  const migrated = settings.migrate({
-    shortcuts: { region: "Ctrl+Alt+9", fullScreen: "Ctrl+Alt+8", copyAll: "Ctrl+Alt+7" },
+test("a v1 settings file keeps its shortcuts and gains default cleanup shortcuts", () => {
+  const normalized = settings.normalize({
+    shortcuts: { region: "Ctrl+Shift+1", fullScreen: "Ctrl+Shift+2", copyAll: "Ctrl+Shift+3" },
     preferences: { bringToFrontAfterCapture: true, autoCopyAfterCapture: false }
   });
 
-  assert.equal(migrated.shortcuts.screenshotArea, "Ctrl+Alt+9");
-  assert.equal(migrated.shortcuts.screenshotFullScreen, "Ctrl+Alt+8");
-  assert.equal(migrated.shortcuts.copyAll, "Ctrl+Alt+7");
-  assert.equal(migrated.preferences.bringToFrontAfterCapture, true);
+  assert.equal(normalized.shortcuts.screenshotArea, "Ctrl+Shift+1");
+  assert.equal(normalized.shortcuts.screenshotFullScreen, "Ctrl+Shift+2");
+  assert.equal(normalized.shortcuts.copyAll, "Ctrl+Shift+3");
+  assert.equal(normalized.shortcuts.clearAll, "Ctrl+Alt+8");
+  assert.equal(normalized.shortcuts.emptyTrash, "Ctrl+Alt+9");
+  assert.equal(normalized.preferences.bringToFrontAfterCapture, true);
 });
 
 test("normalising fills in defaults and drops junk", () => {
   const normalized = settings.normalize({
-    shortcuts: { region: "not a shortcut", fullScreen: "Ctrl+Alt+8" },
+    shortcuts: { region: "not a shortcut", fullScreen: "Ctrl+Shift+8" },
     preferences: { autoCopyAfterCapture: "yes", recordingQuality: "8k", recordingFrameRate: 144 },
     appearance: { theme: "neon" }
   });
 
   assert.equal(normalized.shortcuts.screenshotArea, "Ctrl+Alt+4");
-  assert.equal(normalized.shortcuts.screenshotFullScreen, "Ctrl+Alt+8");
+  assert.equal(normalized.shortcuts.screenshotFullScreen, "Ctrl+Shift+8");
+  assert.equal(normalized.shortcuts.clearAll, "Ctrl+Alt+8");
+  assert.equal(normalized.shortcuts.emptyTrash, "Ctrl+Alt+9");
   assert.equal(normalized.preferences.autoCopyAfterCapture, true);
   assert.equal(normalized.preferences.recordingQuality, "native");
   assert.equal(normalized.preferences.recordingFrameRate, 30);
@@ -92,6 +96,8 @@ test("a v1 file on disk is upgraded in place on next launch", async () => {
     assert.equal(state.version, 2);
     assert.equal(state.shortcuts.screenshotArea, "Ctrl+Alt+1");
     assert.equal(state.shortcuts.recordArea, "Ctrl+Alt+6");
+    assert.equal(state.shortcuts.clearAll, "Ctrl+Alt+8");
+    assert.equal(state.shortcuts.emptyTrash, "Ctrl+Alt+9");
     assert.equal(state.preferences.autoCopyAfterCapture, false);
     assert.equal(state.saveDirectory, path.join(directory, "media"));
   } finally {

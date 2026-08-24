@@ -211,7 +211,7 @@ async function run(deps) {
     const statuses = shortcuts.getStatuses();
     const failed = Object.entries(statuses).filter(([, value]) => value.status !== "active");
 
-    assert(Object.keys(statuses).length === 5, "expected five registered actions");
+    assert(Object.keys(statuses).length === 7, "expected seven registered actions");
     assert(failed.length === 0, `not active: ${failed.map(([key, value]) => `${key} (${value.status})`).join(", ")}`);
 
     return Object.entries(statuses)
@@ -237,7 +237,9 @@ async function run(deps) {
       screenshotFullScreen: "Ctrl+Alt+4",
       recordArea: "Ctrl+Alt+6",
       recordFullScreen: "Ctrl+Alt+7",
-      copyAll: "Ctrl+Alt+3"
+      copyAll: "Ctrl+Alt+3",
+      clearAll: "Ctrl+Alt+8",
+      emptyTrash: "Ctrl+Alt+9"
     });
 
     assert(duplicates.has("screenshotArea") && duplicates.has("screenshotFullScreen"), "conflict not detected");
@@ -804,7 +806,7 @@ async function run(deps) {
   });
 
   await step("Shortcut badges in the UI follow the configured accelerator", async () => {
-    await settings.update({ shortcuts: { screenshotArea: "Ctrl+Alt+9" } });
+    await settings.update({ shortcuts: { screenshotArea: "Ctrl+Shift+9" } });
     shortcuts.apply(settings.get().shortcuts);
     windows.sendToRenderer("app:settings", {
       shortcuts: settings.get().shortcuts,
@@ -826,9 +828,9 @@ async function run(deps) {
       };
     })()`);
 
-    assert(shown.card === "Ctrl+Alt+9", `action card shows "${shown.card}"`);
-    assert(shown.brand === "Ctrl+Alt+9", `brand chip shows "${shown.brand}"`);
-    assert(shown.quick === "Ctrl+Alt+9", `quick capture chip shows "${shown.quick}"`);
+    assert(shown.card === "Ctrl+Shift+9", `action card shows "${shown.card}"`);
+    assert(shown.brand === "Ctrl+Shift+9", `brand chip shows "${shown.brand}"`);
+    assert(shown.quick === "Ctrl+Shift+9", `quick capture chip shows "${shown.quick}"`);
 
     await settings.update({ shortcuts: { screenshotArea: "Ctrl+Alt+4" } });
     shortcuts.apply(settings.get().shortcuts);

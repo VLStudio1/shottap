@@ -554,7 +554,15 @@ const actions = {
   screenshotFullScreen: () => runScreenshot((hooks) => capture.captureFullScreen(hooks)),
   recordArea: () => toggleRecording("area"),
   recordFullScreen: () => toggleRecording("fullscreen"),
-  copyAll: () => copyAllCaptures()
+  copyAll: () => copyAllCaptures(),
+  clearAll: () => clearCaptureQueue(),
+  emptyTrash: async () => {
+    const count = await library.emptyTrash();
+    sendLibrary();
+    toast(count > 0 ? `Emptied Trash (${count} item${count === 1 ? "" : "s"}).` : "Trash is already empty.", "info");
+
+    return { ok: true, count };
+  }
 };
 
 // ShotTap's own leftovers from earlier versions and from interrupted copies.
@@ -696,11 +704,7 @@ function registerIpc() {
   });
 
   ipcMain.handle("library:empty-trash", async () => {
-    const count = await library.emptyTrash();
-    sendLibrary();
-    toast(count > 0 ? `Emptied Trash (${count} item${count === 1 ? "" : "s"}).` : "Trash is already empty.", "info");
-
-    return { ok: true, count };
+    return actions.emptyTrash();
   });
 
   ipcMain.handle("library:copy", async (_event, id) => {

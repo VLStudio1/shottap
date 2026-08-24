@@ -99,7 +99,7 @@ function normalizeTheme(raw) {
 }
 
 // v1 files used { shortcuts: { region, fullScreen, copyAll } } and had no
-// recording shortcuts, theme or save directory.
+// recording/cleanup shortcuts, theme or save directory.
 function migrate(raw) {
   if (!raw || typeof raw !== "object") {
     return null;
@@ -118,7 +118,9 @@ function migrate(raw) {
       screenshotFullScreen: legacy.screenshotFullScreen || legacy.fullScreen,
       recordArea: legacy.recordArea,
       recordFullScreen: legacy.recordFullScreen,
-      copyAll: legacy.copyAll
+      copyAll: legacy.copyAll,
+      clearAll: legacy.clearAll,
+      emptyTrash: legacy.emptyTrash
     },
     preferences: raw.preferences,
     appearance: raw.appearance,

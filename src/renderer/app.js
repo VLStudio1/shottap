@@ -62,13 +62,27 @@
       kind: "utility",
       icon: "copy",
       description: "Put every capture from this session on the clipboard"
+    },
+    {
+      id: "clearAll",
+      label: "Clear All",
+      kind: "utility",
+      icon: "close",
+      description: "Clear the current session capture queue"
+    },
+    {
+      id: "emptyTrash",
+      label: "Empty Trash",
+      kind: "utility",
+      icon: "trash",
+      description: "Permanently delete everything already in Trash"
     }
   ];
 
   const ACTION_GROUPS = [
     { kind: "screenshot", title: "Screenshot", ids: ["screenshotArea", "screenshotFullScreen"] },
     { kind: "record", title: "Record", ids: ["recordArea", "recordFullScreen"] },
-    { kind: "utility", title: "Utility", ids: ["copyAll"] }
+    { kind: "utility", title: "Utility", ids: ["copyAll", "clearAll", "emptyTrash"] }
   ];
 
   const state = {

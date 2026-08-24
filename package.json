@@ -1,7 +1,7 @@
 {
   "name": "shottap",
   "version": "0.5.0",
-  "description": "Keyboard-first screenshots and screen recording for Windows.",
+  "description": "Keyboard-first screenshots and screen recording for Windows with cleanup shortcuts.",
   "author": "VeraLayer Studio LLC",
   "license": "MIT",
   "repository": {

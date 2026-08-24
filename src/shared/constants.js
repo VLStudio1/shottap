@@ -6,14 +6,24 @@
 // where it succeeds it shadows a shortcut the user already relies on. Users can
 // still choose them explicitly in Hotkeys — the status shown there always
 // reflects what Windows actually granted.
-const CAPTURE_ACTIONS = ["screenshotArea", "screenshotFullScreen", "recordArea", "recordFullScreen", "copyAll"];
+const CAPTURE_ACTIONS = [
+  "screenshotArea",
+  "screenshotFullScreen",
+  "recordArea",
+  "recordFullScreen",
+  "copyAll",
+  "clearAll",
+  "emptyTrash"
+];
 
 const DEFAULT_SHORTCUTS = {
   screenshotArea: "Ctrl+Alt+4",
   screenshotFullScreen: "Ctrl+Alt+5",
   recordArea: "Ctrl+Alt+6",
   recordFullScreen: "Ctrl+Alt+7",
-  copyAll: "Ctrl+Alt+3"
+  copyAll: "Ctrl+Alt+3",
+  clearAll: "Ctrl+Alt+8",
+  emptyTrash: "Ctrl+Alt+9"
 };
 
 const DEFAULT_PREFERENCES = {
