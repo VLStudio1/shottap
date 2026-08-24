@@ -4,6 +4,14 @@
   "description": "Keyboard-first screenshots and screen recording for Windows.",
   "author": "VeraLayer Studio LLC",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VLStudio1/shottap.git"
+  },
+  "homepage": "https://github.com/VLStudio1/shottap#readme",
+  "bugs": {
+    "url": "https://github.com/VLStudio1/shottap/issues"
+  },
   "keywords": [
     "screenshot",
     "screen-capture",

@@ -5,13 +5,11 @@ Thanks for your interest in ShotTap. This project handles screen capture, clipbo
 ## Development Setup
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/VLStudio1/shottap.git
 cd shottap
 npm ci
 npm start
 ```
-
-`<repository-url>` will be replaced after the public GitHub repository exists.
 
 ## Branches
 

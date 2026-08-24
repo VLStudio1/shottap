@@ -6,7 +6,11 @@ ShotTap handles screen content, recordings, clipboard data, and local files. Ple
 
 Do not report security vulnerabilities in public GitHub Issues.
 
-When available, use GitHub's private vulnerability reporting or security advisory system for this repository. If private reporting is not available yet, wait for the maintainers to publish an approved private contact channel rather than posting exploit details publicly.
+Use GitHub's private vulnerability reporting or security advisory system for this repository:
+
+https://github.com/VLStudio1/shottap/security/advisories/new
+
+If private reporting is not available yet, wait for the maintainers to publish an approved private contact channel rather than posting exploit details publicly.
 
 ## Sensitive Attachments
 

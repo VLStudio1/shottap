@@ -8,7 +8,9 @@ Fast screen capture without breaking your flow.
 
 ShotTap is a keyboard-first screenshot and screen-recording tool for Windows, built for fast capture, instant clipboard workflows, and local organization without interrupting what you're doing.
 
-<!-- Badges can be added after the public GitHub repository and CI workflow exist. -->
+[![CI](https://github.com/VLStudio1/shottap/actions/workflows/ci.yml/badge.svg)](https://github.com/VLStudio1/shottap/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Windows](https://img.shields.io/badge/platform-Windows-0078D4)
 
 ## Preview
 
@@ -69,7 +71,7 @@ ShotTap is built for people who capture often and want the app to stay out of th
 
 ## Download / Installation
 
-Public downloads will be provided through GitHub Releases after the repository is published.
+Public downloads are provided through [GitHub Releases](https://github.com/VLStudio1/shottap/releases).
 
 ShotTap has two Windows release formats:
 
@@ -129,13 +131,11 @@ Prerequisites:
 - Node.js and npm
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/VLStudio1/shottap.git
 cd shottap
 npm ci
 npm start
 ```
-
-`<repository-url>` will be replaced after the public GitHub repository exists.
 
 ## Run Tests
 
