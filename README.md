@@ -12,11 +12,9 @@ ShotTap is a keyboard-first screenshot and screen-recording tool for Windows, bu
 
 ## Preview
 
-Real project screenshots are being prepared under `docs/images/`. The expected hero screenshot path is:
+![ShotTap dark mode capture library](docs/images/hero-dark.png)
 
-`docs/images/hero.png`
-
-Until those assets are committed, this README avoids broken image embeds.
+The screenshots in this README use synthetic demo content captured from the real ShotTap application, then placed on an AI-generated presentation backdrop for GitHub.
 
 ## Why ShotTap?
 
@@ -85,15 +83,21 @@ Current build artifact names are:
 
 ## Screenshots
 
-Real screenshots are expected to live under `docs/images/` once prepared:
+| Capture Library | Area Selection |
+| --- | --- |
+| ![ShotTap capture library](docs/images/capture-library.png) | ![ShotTap area selection overlay](docs/images/area-selection.png) |
 
-- `docs/images/hero.png`
-- `docs/images/captures.png`
-- `docs/images/editor.png`
-- `docs/images/recordings.png`
-- `docs/images/settings.png`
+| Inspector | Editor |
+| --- | --- |
+| ![ShotTap inspector panel](docs/images/inspector.png) | ![ShotTap screenshot editor](docs/images/editor.png) |
 
-These paths are documented here for the screenshot pass; they are not embedded until the files exist.
+| Recording | Hotkeys |
+| --- | --- |
+| ![ShotTap active recording state](docs/images/recording.png) | ![ShotTap hotkeys settings](docs/images/hotkeys.png) |
+
+| Light Mode |
+| --- |
+| ![ShotTap light mode](docs/images/light-mode.png) |
 
 ## Keyboard Shortcuts
 
@@ -146,6 +150,12 @@ npm run selftest
 ```
 
 Runs ShotTap's Electron self-test against a temporary profile. This exercises real capture flows, global shortcuts, clipboard behavior, recordings, library views, themes, editor behavior, and layout checks. It requires an environment where Electron can create windows and register hotkeys.
+
+```bash
+npm run docs:screenshots
+```
+
+Regenerates the public README and GitHub media screenshots using temporary app data, synthetic demo fixtures, real ShotTap windows, and the repository backdrop in `docs/images`.
 
 ## Project Structure
 

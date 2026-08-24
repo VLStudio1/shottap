@@ -1131,6 +1131,16 @@ async function boot() {
       clipboardService
     });
   }
+
+  if (process.env.SHOTTAP_DOCS_SCREENSHOTS) {
+    require("../../test/docs-screenshots").run({
+      capture,
+      library,
+      recording,
+      settings,
+      windows
+    });
+  }
 }
 
 if (gotSingleInstanceLock) {
