@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 This project follows the spirit of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-08-24
+
+### Added
+
+- Added configurable global shortcuts for Clear All and Empty Trash.
+- Added clearer README download links for the Windows installer and portable EXE.
+
 ## [0.5.0] - 2026-08-24
 
 ### Added

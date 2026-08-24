@@ -72,17 +72,15 @@ ShotTap is built for people who capture often and want the app to stay out of th
 
 ## Download / Installation
 
-Public downloads are provided through [GitHub Releases](https://github.com/VLStudio1/shottap/releases).
+Most users should download ShotTap from [GitHub Releases](https://github.com/VLStudio1/shottap/releases/latest), not build it from source.
 
-ShotTap has two Windows release formats:
+- [Download the Windows installer](https://github.com/VLStudio1/shottap/releases/download/v0.5.1/ShotTap-Setup-0.5.1.exe)
+- [Download the portable EXE](https://github.com/VLStudio1/shottap/releases/download/v0.5.1/ShotTap-Portable-0.5.1.exe)
+- [View checksums](https://github.com/VLStudio1/shottap/releases/download/v0.5.1/SHA256SUMS.txt)
 
-- **Installer:** a normal Windows installation with Start Menu and desktop shortcut support.
-- **Portable:** a standalone executable that can run without a normal installation.
+The installer adds normal Windows shortcuts. The portable EXE runs without installation.
 
-Current build artifact names are:
-
-- `ShotTap-Setup-0.5.0.exe`
-- `ShotTap-Portable-0.5.0.exe`
+The `dist/` folder is generated during release builds and is intentionally not stored in the source repository. Published EXEs live on the release page so the code stays lightweight.
 
 ## Screenshots
 
