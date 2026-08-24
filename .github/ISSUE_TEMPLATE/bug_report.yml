@@ -12,14 +12,14 @@ body:
     id: version
     attributes:
       label: ShotTap version
-      description: Example: 0.5.0
+      description: "Example: 0.5.0"
     validations:
       required: true
   - type: input
     id: windows-version
     attributes:
       label: Windows version
-      description: Example: Windows 11 23H2, Windows 10 22H2
+      description: "Example: Windows 11 23H2, Windows 10 22H2"
     validations:
       required: true
   - type: dropdown
@@ -37,7 +37,7 @@ body:
     id: monitor-count
     attributes:
       label: Number of monitors
-      description: Example: 1, 2, 3
+      description: "Example: 1, 2, 3"
   - type: textarea
     id: monitor-resolutions
     attributes:

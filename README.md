@@ -78,8 +78,8 @@ ShotTap has two Windows release formats:
 
 Current build artifact names are:
 
-- `ShotTap Setup 0.5.0.exe`
-- `ShotTap Portable 0.5.0.exe`
+- `ShotTap-Setup-0.5.0.exe`
+- `ShotTap-Portable-0.5.0.exe`
 
 ## Screenshots
 
