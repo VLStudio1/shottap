@@ -183,7 +183,7 @@ async function captureWindow(window, fileName) {
 }
 
 async function run(deps) {
-  const { actions, library, recording, settings, shortcuts, windows } = deps;
+  const { actions, clipboardService, library, recording, settings, shortcuts, windows } = deps;
 
   outputDir = process.env.SHOTTAP_SELFTEST_OUT || path.join(app.getPath("temp"), "shottap-selftest");
   await fs.mkdir(outputDir, { recursive: true });
@@ -445,11 +445,120 @@ async function run(deps) {
   });
 
   await step("Copy All copies the whole session queue", async () => {
+    const images = library.list().filter((item) => item.type === "image" && !item.trashedAt);
+    const expected = images.map((item) => library.pathFor(item.id));
     const result = await actions.copyAll();
 
     assert(result.ok, result.message);
 
+    const files = await waitFor(
+      "Copy All to expose every session image as files",
+      async () => {
+        const list = await readClipboardFileList();
+
+        return expected.every((filePath) => list.includes(filePath)) ? list : null;
+      },
+      { timeout: 10000, interval: 250 }
+    );
+
+    if (images.length > 1) {
+      const newest = images[images.length - 1];
+      const size = await waitFor(
+        "Copy All to expose a composite bitmap fallback",
+        () => {
+          const image = clipboard.readImage();
+
+          if (image.isEmpty()) {
+            return null;
+          }
+
+          const dimensions = image.getSize();
+
+          return dimensions.height > newest.height ? dimensions : null;
+        },
+        { timeout: 10000, interval: 250 }
+      );
+
+      return `${files.length} files plus ${size.width}x${size.height} composite bitmap`;
+    }
+
     return result.message;
+  });
+
+  await step("Clearing the clipboard still allows Copy All from Captures", async () => {
+    const images = library.list().filter((item) => item.type === "image" && !item.trashedAt);
+    const expected = images.map((item) => library.pathFor(item.id));
+
+    assert(expected.length > 0, "no screenshots exist to copy from Captures");
+
+    await mainWindow.webContents.executeJavaScript(`(async () => {
+      window.__shottapTest.navigate("captures");
+      await window.shottap.clearClipboard();
+      document.querySelector('.action-card[data-action="copyAll"]').click();
+    })()`);
+
+    const files = await waitFor(
+      "Copy All from Captures after clearing the clipboard",
+      async () => {
+        const list = await readClipboardFileList();
+
+        return expected.every((filePath) => list.includes(filePath)) ? list : null;
+      },
+      { timeout: 10000, interval: 250 }
+    );
+
+    const image = clipboard.readImage();
+
+    assert(!image.isEmpty(), "Copy All from Captures did not leave an image fallback on the clipboard");
+
+    return `${files.length} files copied from the Captures screen after clearing`;
+  });
+
+  await step("Copy All falls back to library screenshots when the session queue is empty", async () => {
+    const images = library.list().filter((item) => item.type === "image" && !item.trashedAt);
+    const expected = images.map((item) => library.pathFor(item.id));
+
+    assert(expected.length > 0, "no screenshots exist to copy after clearing the queue");
+
+    actions.clearAll();
+    const result = await actions.copyAll();
+
+    assert(result.ok, result.message);
+
+    const files = await waitFor(
+      "Copy All fallback to expose library screenshots",
+      async () => {
+        const list = await readClipboardFileList();
+
+        return expected.every((filePath) => list.includes(filePath)) ? list : null;
+      },
+      { timeout: 10000, interval: 250 }
+    );
+
+    return `${files.length} library screenshots copied with an empty session queue`;
+  });
+
+  await step("Copy All composite fallback stays bounded for large queues", async () => {
+    const first = library.list().find((item) => item.type === "image" && !item.trashedAt);
+
+    assert(first, "no screenshot exists for a large Copy All clipboard stress check");
+
+    const filePath = library.pathFor(first.id);
+    const filePaths = Array.from({ length: 80 }, () => filePath);
+    const result = await clipboardService.copyFiles(filePaths, filePaths, { compositeImages: true });
+
+    assert(result.ok, result.message);
+
+    const image = clipboard.readImage();
+
+    assert(!image.isEmpty(), "large Copy All did not leave an image fallback on the clipboard");
+
+    const size = image.getSize();
+
+    assert(size.width <= 2400, `large composite is too wide: ${size.width}px`);
+    assert(size.height <= 16000, `large composite is too tall: ${size.height}px`);
+
+    return `${size.width}x${size.height} bitmap for 80 screenshots`;
   });
 
   // ---- recording ---------------------------------------------------------
@@ -670,7 +779,7 @@ async function run(deps) {
       opened.width === opened.expectedWidth && opened.height === opened.expectedHeight,
       `canvas is ${opened.width}x${opened.height} but the file is ${opened.expectedWidth}x${opened.expectedHeight}`
     );
-    assert(opened.tools === 4, `expected pencil, eraser, undo and redo, found ${opened.tools}`);
+    assert(opened.tools === 7, `expected drawing tools, eraser, undo and redo, found ${opened.tools}`);
 
     await wait(400);
     await captureWindow(mainWindow, "editor-open.png");
@@ -712,6 +821,52 @@ async function run(deps) {
     assert(updated.width === target.width && updated.height === target.height, "the edit changed the image size");
 
     return `${Math.round(before.size / 1024)} KB → ${Math.round(after.size / 1024)} KB, dimensions preserved`;
+  });
+
+  await step("Editor shape tools draw and save vector markup", async () => {
+    const target = library.list().find((entry) => entry.type === "image" && !entry.trashedAt);
+    const before = await fs.stat(library.pathFor(target.id));
+
+    const saved = await mainWindow.webContents.executeJavaScript(`(async () => {
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const item = window.__shottapTest.state.items.find((entry) => entry.id === ${JSON.stringify(target.id)});
+      await window.SCEditor.open(item);
+      const canvas = document.getElementById("editorCanvas");
+      const rect = canvas.getBoundingClientRect();
+      const send = (type, x, y, shiftKey = false) => canvas.dispatchEvent(new PointerEvent(type, {
+        clientX: rect.left + x, clientY: rect.top + y, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, pointerId: 2, shiftKey
+      }));
+
+      document.querySelector('[data-tool="rectangle"]').click();
+      send("pointerdown", 260, 120);
+      send("pointermove", 480, 260, true);
+      send("pointerup", 480, 260, true);
+
+      document.querySelector('[data-tool="ellipse"]').click();
+      send("pointerdown", 520, 140);
+      send("pointermove", 720, 300);
+      send("pointerup", 720, 300);
+
+      document.querySelector('[data-tool="line"]').click();
+      send("pointerdown", 300, 360);
+      send("pointermove", 720, 420);
+      send("pointerup", 720, 420);
+
+      const undoEnabled = !document.querySelector('[data-command="undo"]').disabled;
+      document.querySelector('[data-command="save"]').click();
+      await wait(2500);
+
+      return { undoEnabled, stillOpen: window.SCEditor.isOpen() };
+    })()`);
+
+    assert(saved.undoEnabled, "undo stayed disabled after drawing shapes");
+    assert(!saved.stillOpen, "the editor did not close after saving shapes");
+
+    const after = await fs.stat(library.pathFor(target.id));
+
+    assert(after.size !== before.size, "shape markup did not change the PNG on disk");
+
+    return "rectangle, ellipse and line saved";
   });
 
   await step("Search, sort and filter narrow the library for real", async () => {

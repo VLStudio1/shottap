@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("shottap", {
     deletePermanently: (id) => ipcRenderer.invoke("library:delete", String(id)),
     emptyTrash: () => ipcRenderer.invoke("library:empty-trash"),
     copy: (id) => ipcRenderer.invoke("library:copy", String(id)),
+    copyMany: (ids) => ipcRenderer.invoke("library:copy-many", Array.isArray(ids) ? ids.map(String) : []),
     open: (id) => ipcRenderer.invoke("library:open", String(id)),
     reveal: (id) => ipcRenderer.invoke("library:reveal", String(id)),
     saveEdit: (id, buffer) => ipcRenderer.invoke("library:save-edit", String(id), buffer)

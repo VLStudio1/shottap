@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 This project follows the spirit of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [0.5.3] - 2026-08-31
+
+### Added
+
+- Added line, rectangle, square, ellipse, and circle tools to the screenshot editor.
+- Added deeper self-test coverage for Copy All after clearing the clipboard, after clearing the session queue, and with large screenshot sets.
+
+### Fixed
+
+- Made Copy All fall back to the Captures library when the current session queue is empty.
+- Added a bounded composite image fallback so paste targets that ignore multi-file clipboard data still receive all copied screenshots as one image.
+
 ## [0.5.2] - 2026-08-24
 
 ### Changed

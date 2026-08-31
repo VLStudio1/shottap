@@ -51,6 +51,9 @@
     redo: '<path d="M14.5 14l5-5-5-5"/><path d="M19.5 9H9.7a5.2 5.2 0 0 0 0 10.4H14"/>',
     eraser:
       '<path d="M8.6 19.4 3.6 14.4a2 2 0 0 1 0-2.8l7.8-7.8a2 2 0 0 1 2.8 0l5.6 5.6a2 2 0 0 1 0 2.8l-7.2 7.2H8.6Z"/><path d="m8 9 7 7"/><path d="M10.5 21.4H21"/>',
+    line: '<path d="M5 19 19 5"/>',
+    rectangle: '<rect x="4" y="6" width="16" height="12" rx="1.8"/>',
+    ellipse: '<ellipse cx="12" cy="12" rx="8" ry="5.5"/>',
     restore: '<path d="M4 5.5v5h5"/><path d="M4.6 14a8 8 0 1 0 1.5-7"/>',
     chevronRight: '<path d="m9.5 5.5 6.5 6.5-6.5 6.5"/>',
     chevronDown: '<path d="m5.5 9.5 6.5 6.5 6.5-6.5"/>',

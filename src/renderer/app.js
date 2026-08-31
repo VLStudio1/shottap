@@ -417,7 +417,7 @@
     editor: {
       icon: "pencil",
       title: "Nothing to edit yet",
-      body: "Take a screenshot and it will appear here, ready for pencil and eraser markup.",
+      body: "Take a screenshot and it will appear here, ready for markup.",
       action: "screenshotArea"
     },
     filtered: {
@@ -541,7 +541,7 @@
       <div class="view-head">
         <div class="view-title">
           <h1>Editor</h1>
-          <p>Pick a screenshot to mark up with the pencil and eraser. Recordings cannot be edited.</p>
+          <p>Pick a screenshot to mark up. Recordings cannot be edited.</p>
         </div>
       </div>
       ${
@@ -1032,6 +1032,16 @@
     }
   }
 
+  async function copyAllForCurrentView() {
+    if (state.view === "captures") {
+      const ids = applyFilters(itemsForView("captures")).map((item) => item.id);
+      await api.library.copyMany(ids);
+      return;
+    }
+
+    await api.run("copyAll");
+  }
+
   document.addEventListener("click", async (event) => {
     const target = event.target;
 
@@ -1068,7 +1078,9 @@
     if (actionButton) {
       const action = actionButton.dataset.action;
 
-      if (isRecording() && (action === "recordArea" || action === "recordFullScreen")) {
+      if (action === "copyAll") {
+        await copyAllForCurrentView();
+      } else if (isRecording() && (action === "recordArea" || action === "recordFullScreen")) {
         await api.stopRecording();
       } else {
         await api.run(action);

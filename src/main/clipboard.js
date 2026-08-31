@@ -21,6 +21,7 @@ const { execFile, spawn } = require("child_process");
 const fs = require("fs/promises");
 const os = require("os");
 const path = require("path");
+const { pathToFileURL } = require("url");
 
 const REQUEST_TIMEOUT_MS = 10000;
 const MAX_CONSECUTIVE_SPAWN_FAILURES = 3;
@@ -60,7 +61,7 @@ function clear() {
 }
 
 function fileUrl(filePath) {
-  return `file:///${filePath.replace(/\\/g, "/").replace(/ /g, "%20")}`;
+  return pathToFileURL(filePath).href;
 }
 
 function buildClipboardHtml(imagePaths) {
@@ -122,14 +123,144 @@ const PS_PRELUDE = [
   "    $data.SetData([System.Windows.Forms.DataFormats]::Html, [string]$request.html)",
   "  }",
   "",
+  "  function New-CompositeBitmap($paths) {",
+  "    $loaded = New-Object System.Collections.Generic.List[object]",
+  "    $graphics = $null",
+  "    $borderPen = $null",
+  "",
+  "    try {",
+  "      foreach ($path in @($paths)) {",
+  "        if (-not $path) { continue }",
+  "        $bytes = [System.IO.File]::ReadAllBytes([string]$path)",
+  "        $stream = New-Object System.IO.MemoryStream(,$bytes)",
+  "        $bitmap = New-Object System.Drawing.Bitmap($stream)",
+  "        $loaded.Add([pscustomobject]@{ Bitmap = $bitmap; Stream = $stream })",
+  "      }",
+  "",
+  "      if ($loaded.Count -eq 0) { return $null }",
+  "",
+  "      $count = $loaded.Count",
+  "      $columns = 1",
+  "      if ($count -gt 120) { $columns = 6 }",
+  "      elseif ($count -gt 60) { $columns = 5 }",
+  "      elseif ($count -gt 30) { $columns = 4 }",
+  "      elseif ($count -gt 12) { $columns = 3 }",
+  "      elseif ($count -gt 6) { $columns = 2 }",
+  "",
+  "      $maxCanvasWidth = 2400",
+  "      $maxCanvasHeight = 16000",
+  "      $maxPixels = 32000000",
+  "      $padding = 24",
+  "      $gap = 14",
+  "      $cellWidth = [Math]::Max(120, [int][Math]::Floor(($maxCanvasWidth - ($padding * 2) - ($gap * ($columns - 1))) / $columns))",
+  "",
+  "      function Measure-Composite($baseCellWidth) {",
+  "        $rowHeights = @{}",
+  "        $index = 0",
+  "",
+  "        foreach ($entry in $loaded) {",
+  "          $row = [int][Math]::Floor($index / $columns)",
+  "          $scale = [Math]::Min(1.0, $baseCellWidth / [double]$entry.Bitmap.Width)",
+  "          $drawWidth = [Math]::Max(1, [int][Math]::Round($entry.Bitmap.Width * $scale))",
+  "          $drawHeight = [Math]::Max(1, [int][Math]::Round($entry.Bitmap.Height * $scale))",
+  "",
+  "          $entry | Add-Member -Force -NotePropertyName DrawWidth -NotePropertyValue $drawWidth",
+  "          $entry | Add-Member -Force -NotePropertyName DrawHeight -NotePropertyValue $drawHeight",
+  "          $entry | Add-Member -Force -NotePropertyName Row -NotePropertyValue $row",
+  "          $entry | Add-Member -Force -NotePropertyName Column -NotePropertyValue ($index % $columns)",
+  "",
+  "          if (-not $rowHeights.ContainsKey($row)) { $rowHeights[$row] = 0 }",
+  "          $rowHeights[$row] = [Math]::Max([int]$rowHeights[$row], $drawHeight)",
+  "          $index += 1",
+  "        }",
+  "",
+  "        $rowCount = [int][Math]::Ceiling($loaded.Count / [double]$columns)",
+  "        $totalHeight = $padding * 2",
+  "",
+  "        for ($row = 0; $row -lt $rowCount; $row += 1) {",
+  "          $totalHeight += [int]$rowHeights[$row]",
+  "        }",
+  "",
+  "        $totalHeight += $gap * [Math]::Max(0, $rowCount - 1)",
+  "",
+  "        return [pscustomobject]@{ RowHeights = $rowHeights; RowCount = $rowCount; TotalHeight = $totalHeight }",
+  "      }",
+  "",
+  "      $measure = Measure-Composite $cellWidth",
+  "",
+  "      if ($measure.TotalHeight -gt $maxCanvasHeight) {",
+  "        $available = [Math]::Max(200, $maxCanvasHeight - ($padding * 2) - ($gap * [Math]::Max(0, $measure.RowCount - 1)))",
+  "        $content = [Math]::Max(1, $measure.TotalHeight - ($padding * 2) - ($gap * [Math]::Max(0, $measure.RowCount - 1)))",
+  "        $cellWidth = [Math]::Max(80, [int][Math]::Floor($cellWidth * ($available / [double]$content)))",
+  "        $measure = Measure-Composite $cellWidth",
+  "      }",
+  "",
+  "      $canvasWidth = ($padding * 2) + ($cellWidth * $columns) + ($gap * ($columns - 1))",
+  "      $pixels = $canvasWidth * $measure.TotalHeight",
+  "",
+  "      if ($pixels -gt $maxPixels) {",
+  "        $factor = [Math]::Sqrt($maxPixels / [double]$pixels)",
+  "        $cellWidth = [Math]::Max(80, [int][Math]::Floor($cellWidth * $factor))",
+  "        $measure = Measure-Composite $cellWidth",
+  "        $canvasWidth = ($padding * 2) + ($cellWidth * $columns) + ($gap * ($columns - 1))",
+  "      }",
+  "",
+  "      $canvas = New-Object System.Drawing.Bitmap($canvasWidth, $measure.TotalHeight)",
+  "      $graphics = [System.Drawing.Graphics]::FromImage($canvas)",
+  "      $graphics.Clear([System.Drawing.Color]::FromArgb(248, 250, 252))",
+  "      $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic",
+  "      $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality",
+  "      $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality",
+  "",
+  "      $borderPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(203, 213, 225), 1)",
+  "      $rowOffsets = @{}",
+  "      $rowY = $padding",
+  "",
+  "      for ($row = 0; $row -lt $measure.RowCount; $row += 1) {",
+  "        $rowOffsets[$row] = $rowY",
+  "        $rowY += [int]$measure.RowHeights[$row] + $gap",
+  "      }",
+  "",
+  "      foreach ($entry in $loaded) {",
+  "        $cellX = $padding + ($entry.Column * ($cellWidth + $gap))",
+  "        $x = $cellX + [int][Math]::Floor(($cellWidth - $entry.DrawWidth) / 2)",
+  "        $y = [int]$rowOffsets[$entry.Row]",
+  "        $rect = New-Object System.Drawing.Rectangle($x, $y, $entry.DrawWidth, $entry.DrawHeight)",
+  "        $graphics.FillRectangle([System.Drawing.Brushes]::White, $rect)",
+  "        $graphics.DrawImage($entry.Bitmap, $rect)",
+  "        $graphics.DrawRectangle($borderPen, $rect)",
+  "      }",
+  "",
+  "      return $canvas",
+  "    } finally {",
+  "      if ($borderPen) { $borderPen.Dispose() }",
+  "      if ($graphics) { $graphics.Dispose() }",
+  "      foreach ($entry in $loaded) {",
+  "        if ($entry.Bitmap) { $entry.Bitmap.Dispose() }",
+  "        if ($entry.Stream) { $entry.Stream.Dispose() }",
+  "      }",
+  "    }",
+  "  }",
+  "",
   "  $bitmap = $null",
   "  $stream = $null",
   "",
   "  try {",
-  "    if ($request.image) {",
+  "    if ($request.compositeImages -and @($request.compositeImages).Count -gt 1) {",
+  "      try {",
+  "        $bitmap = New-CompositeBitmap @($request.compositeImages)",
+  "      } catch {",
+  "        $bitmap = $null",
+  "      }",
+  "    }",
+  "",
+  "    if ((-not $bitmap) -and $request.image) {",
   "      $bytes = [System.IO.File]::ReadAllBytes([string]$request.image)",
   "      $stream = New-Object System.IO.MemoryStream(,$bytes)",
   "      $bitmap = New-Object System.Drawing.Bitmap($stream)",
+  "    }",
+  "",
+  "    if ($bitmap) {",
   "      $data.SetImage($bitmap)",
   "    }",
   "",
@@ -473,17 +604,21 @@ async function copyViaOneShot(payload) {
   }
 }
 
-function buildPayload(filePaths, imagePaths) {
+function buildPayload(filePaths, imagePaths, options = {}) {
   const files = filePaths.filter(Boolean);
   const images = imagePaths.filter(Boolean);
+  const useCompositeImage = options.compositeImages && images.length > 1;
 
   return {
     op: "copy",
     files,
     text: files.join("\r\n"),
-    // The bitmap flavour is the newest capture, so apps that can only take an
-    // image still paste the shot the user just took rather than the oldest one.
+    // Explicit Copy All uses a composite bitmap fallback so apps that ignore
+    // multi-file clipboard data still receive every image in one paste. The
+    // newest bitmap is still sent as a fallback if composition cannot decode an
+    // image for any reason.
     image: images.length > 0 ? images[images.length - 1] : null,
+    compositeImages: useCompositeImage ? images : null,
     // Only worth offering for a set: with one image the HTML flavour just gives
     // apps that prefer it a file:// <img> where the bitmap would have pasted
     // properly.
@@ -491,8 +626,8 @@ function buildPayload(filePaths, imagePaths) {
   };
 }
 
-async function copyFiles(filePaths, imagePaths = []) {
-  const payload = buildPayload(filePaths, imagePaths);
+async function copyFiles(filePaths, imagePaths = [], options = {}) {
+  const payload = buildPayload(filePaths, imagePaths, options);
 
   if (payload.files.length === 0) {
     return { ok: false, message: "Nothing to copy." };

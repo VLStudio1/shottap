@@ -336,7 +336,7 @@ function invalidatePendingCopies() {
 // measured at ~3 s of doing nothing before the clipboard call was even made —
 // the whole of the delay Copy All used to show. Once the request is written to
 // the helper the reply is real I/O, which wakes the loop on its own.
-function scheduleClipboardCopy(items, kind) {
+function scheduleClipboardCopy(items, kind, options = {}) {
   const generation = ++copyGeneration;
   const { filePaths, imagePaths } = clipboardPathsFor(items);
 
@@ -346,7 +346,7 @@ function scheduleClipboardCopy(items, kind) {
         return { ok: false, superseded: true, message: "Superseded by a newer copy." };
       }
 
-      const result = await clipboardService.copyFiles(filePaths, imagePaths);
+      const result = await clipboardService.copyFiles(filePaths, imagePaths, options);
 
       if (generation !== copyGeneration) {
         return { ...result, superseded: true };
@@ -475,20 +475,39 @@ async function toggleRecording(mode) {
 }
 
 async function copyAllCaptures() {
-  const items = sessionItems();
+  let items = sessionItems();
 
   if (items.length === 0) {
-    toast("Nothing captured this session yet.", "info");
-    return { ok: false, message: "Nothing captured this session yet." };
+    items = library.list().filter((item) => item && !item.trashedAt && item.type === "image");
   }
 
-  const result = await scheduleClipboardCopy(items, "copyAll");
+  if (items.length === 0) {
+    toast("No screenshots to copy.", "info");
+    return { ok: false, message: "No screenshots to copy." };
+  }
+
+  const result = await scheduleClipboardCopy(items, "copyAll", { compositeImages: true });
 
   // A capture taken while this copy was queued already owns the clipboard, and
   // it holds the newer set — saying so would only be noise.
   if (result.superseded) {
     return { ok: true, message: result.message };
   }
+
+  toast(result.message, result.ok ? "success" : "error");
+
+  return result;
+}
+
+async function copyItems(items, emptyMessage = "Nothing to copy.") {
+  const liveItems = items.filter((item) => item && !item.trashedAt);
+
+  if (liveItems.length === 0) {
+    toast(emptyMessage, "info");
+    return { ok: false, message: emptyMessage };
+  }
+
+  const result = await scheduleClipboardCopy(liveItems, "copyAll", { compositeImages: true });
 
   toast(result.message, result.ok ? "success" : "error");
 
@@ -734,6 +753,14 @@ function registerIpc() {
     toast(result.message, result.ok ? "success" : "error");
 
     return result;
+  });
+
+  ipcMain.handle("library:copy-many", async (_event, ids) => {
+    const requested = Array.isArray(ids) ? ids.map(requireString).filter(Boolean) : [];
+    const uniqueIds = [...new Set(requested)];
+    const items = uniqueIds.map((id) => library.find(id)).filter(Boolean);
+
+    return copyItems(items, "Nothing to copy on this screen.");
   });
 
   ipcMain.handle("library:open", async (_event, id) => {

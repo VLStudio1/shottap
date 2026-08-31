@@ -1,9 +1,8 @@
 // Screenshot markup editor.
 //
-// Pencil and eraser behave exactly as they did before; what is new is that the
-// strokes are kept as vectors, which makes undo/redo exact and keeps memory
-// flat (no stack of full-size bitmaps) — and that saving writes the real PNG
-// file through the main process instead of holding a second copy in the page.
+// Markup is kept as vectors, which makes undo/redo exact and keeps memory flat
+// (no stack of full-size bitmaps). Saving writes the real PNG file through the
+// main process instead of holding a second copy in the page.
 
 (function () {
   const icons = window.SCIcons;
@@ -30,10 +29,22 @@
   let onClosed = null;
   let saving = false;
 
+  const DRAW_TOOLS = [
+    { id: "pen", icon: "pencil", title: "Pencil" },
+    { id: "line", icon: "line", title: "Line" },
+    { id: "rectangle", icon: "rectangle", title: "Rectangle" },
+    { id: "ellipse", icon: "ellipse", title: "Ellipse" },
+    { id: "eraser", icon: "eraser", title: "Eraser" }
+  ];
+
+  const isShapeTool = (name) => name === "line" || name === "rectangle" || name === "ellipse";
+
   function renderChrome() {
     toolsHost.innerHTML = `
-      <button class="icon-button ${tool === "pen" ? "active" : ""}" data-tool="pen" type="button" title="Pencil" aria-label="Pencil" aria-pressed="${tool === "pen"}">${icons.icon("pencil")}</button>
-      <button class="icon-button ${tool === "eraser" ? "active" : ""}" data-tool="eraser" type="button" title="Eraser" aria-label="Eraser" aria-pressed="${tool === "eraser"}">${icons.icon("eraser")}</button>
+      ${DRAW_TOOLS.map(
+        (entry) =>
+          `<button class="icon-button ${tool === entry.id ? "active" : ""}" data-tool="${entry.id}" type="button" title="${entry.title}" aria-label="${entry.title}" aria-pressed="${tool === entry.id}">${icons.icon(entry.icon)}</button>`
+      ).join("")}
       <span style="width:1px;height:22px;background:var(--border);margin:0 4px"></span>
       <button class="icon-button" data-command="undo" type="button" title="Undo (Ctrl+Z)" aria-label="Undo" ${strokes.length === 0 ? "disabled" : ""}>${icons.icon("undo")}</button>
       <button class="icon-button" data-command="redo" type="button" title="Redo (Ctrl+Y)" aria-label="Redo" ${redoStack.length === 0 ? "disabled" : ""}>${icons.icon("redo")}</button>
@@ -45,7 +56,44 @@
     `;
   }
 
-  function drawStrokePath(target, stroke) {
+  function rectFromPoints(start, end, square = false) {
+    let width = end.x - start.x;
+    let height = end.y - start.y;
+
+    if (square) {
+      const size = Math.min(Math.abs(width), Math.abs(height));
+      width = Math.sign(width || 1) * size;
+      height = Math.sign(height || 1) * size;
+    }
+
+    return {
+      x: Math.min(start.x, start.x + width),
+      y: Math.min(start.y, start.y + height),
+      width: Math.abs(width),
+      height: Math.abs(height)
+    };
+  }
+
+  function endPointForShape(start, end, constrain = false) {
+    if (!constrain) {
+      return end;
+    }
+
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.max(Math.abs(dx), Math.abs(dy));
+
+    if (length === 0) {
+      return end;
+    }
+
+    return {
+      x: start.x + Math.sign(dx || 1) * length,
+      y: start.y + Math.sign(dy || 1) * length
+    };
+  }
+
+  function drawPathTool(target, stroke) {
     if (stroke.points.length === 0) {
       return;
     }
@@ -78,15 +126,67 @@
     target.restore();
   }
 
+  function drawShapeTool(target, stroke) {
+    if (stroke.points.length < 2) {
+      drawPathTool(target, stroke);
+      return;
+    }
+
+    const start = stroke.points[0];
+    const end = stroke.points[stroke.points.length - 1];
+
+    target.save();
+    target.globalCompositeOperation = "source-over";
+    target.strokeStyle = stroke.color;
+    target.lineWidth = stroke.size;
+    target.lineCap = "round";
+    target.lineJoin = "round";
+    target.beginPath();
+
+    if (stroke.tool === "line") {
+      const constrained = endPointForShape(start, end, stroke.constrain);
+      target.moveTo(start.x, start.y);
+      target.lineTo(constrained.x, constrained.y);
+    } else {
+      const rect = rectFromPoints(start, end, stroke.constrain);
+
+      if (stroke.tool === "ellipse") {
+        target.ellipse(
+          rect.x + rect.width / 2,
+          rect.y + rect.height / 2,
+          Math.max(0.5, rect.width / 2),
+          Math.max(0.5, rect.height / 2),
+          0,
+          0,
+          Math.PI * 2
+        );
+      } else {
+        target.rect(rect.x, rect.y, rect.width, rect.height);
+      }
+    }
+
+    target.stroke();
+    target.restore();
+  }
+
+  function drawMarkupItem(target, stroke) {
+    if (isShapeTool(stroke.tool)) {
+      drawShapeTool(target, stroke);
+      return;
+    }
+
+    drawPathTool(target, stroke);
+  }
+
   function renderMarkup() {
     markupContext.clearRect(0, 0, markup.width, markup.height);
 
     for (const stroke of strokes) {
-      drawStrokePath(markupContext, stroke);
+      drawMarkupItem(markupContext, stroke);
     }
 
     if (currentStroke) {
-      drawStrokePath(markupContext, currentStroke);
+      drawMarkupItem(markupContext, currentStroke);
     }
   }
 
@@ -230,13 +330,22 @@
       return;
     }
 
-    canvas.setPointerCapture(event.pointerId);
     currentStroke = {
       tool,
       color: colorInput.value,
       size: Number(sizeInput.value),
+      constrain: event.shiftKey,
       points: [pointFrom(event)]
     };
+
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch (_error) {
+      // Synthetic/self-test events and a few unusual input paths do not create
+      // an active browser pointer capture target. Drawing can continue without
+      // capture because moves over the canvas still arrive normally.
+    }
+
     redraw();
   });
 
@@ -245,13 +354,28 @@
       return;
     }
 
-    currentStroke.points.push(pointFrom(event));
+    currentStroke.constrain = event.shiftKey;
+
+    if (isShapeTool(currentStroke.tool)) {
+      currentStroke.points[1] = pointFrom(event);
+    } else {
+      currentStroke.points.push(pointFrom(event));
+    }
+
     redraw();
   });
 
-  function endStroke() {
+  function endStroke(event) {
     if (!currentStroke) {
       return;
+    }
+
+    if (event?.type === "pointerup") {
+      currentStroke.constrain = event.shiftKey;
+
+      if (isShapeTool(currentStroke.tool)) {
+        currentStroke.points[1] = pointFrom(event);
+      }
     }
 
     strokes.push(currentStroke);

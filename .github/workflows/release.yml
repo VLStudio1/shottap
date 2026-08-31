@@ -9,7 +9,7 @@ on:
       tag:
         description: "Release tag to build"
         required: true
-        default: "v0.5.2"
+        default: "v0.5.3"
 
 permissions:
   contents: write
@@ -109,6 +109,8 @@ jobs:
             "* Full-screen screenshots"
             "* Global customizable hotkeys"
             "* Instant clipboard copy"
+            "* Copy All with multi-file clipboard data"
+            "* Composite image fallback for paste targets that ignore multi-file clipboard data"
             "* Cleanup shortcuts for Clear All and Empty Trash"
             "* Cleaner Quick Capture dashboard"
             ""
@@ -132,6 +134,7 @@ jobs:
             "## Editor"
             ""
             "* Pencil and eraser"
+            "* Line, rectangle, square, ellipse, and circle tools"
             "* Brush color and size"
             "* Undo and redo"
             ""

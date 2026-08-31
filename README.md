@@ -32,7 +32,7 @@ ShotTap is built for people who capture often and want the app to stay out of th
 - Full-screen recording
 - Global keyboard shortcuts
 - Instant clipboard copy
-- Multi-capture clipboard workflows with Copy All
+- Multi-capture clipboard workflows with Copy All and image fallback paste support
 - Shortcut-driven queue clearing and trash cleanup
 
 ### Recording
@@ -57,6 +57,9 @@ ShotTap is built for people who capture often and want the app to stay out of th
 
 - Screenshot editor
 - Pencil tool
+- Line tool
+- Rectangle and square tools
+- Ellipse and circle tools
 - Eraser tool
 - Brush color
 - Brush size
@@ -74,9 +77,9 @@ ShotTap is built for people who capture often and want the app to stay out of th
 
 Most users should download ShotTap from [GitHub Releases](https://github.com/VLStudio1/shottap/releases/latest), not build it from source.
 
-- [Download the Windows installer](https://github.com/VLStudio1/shottap/releases/download/v0.5.2/ShotTap-Setup-0.5.2.exe)
-- [Download the portable EXE](https://github.com/VLStudio1/shottap/releases/download/v0.5.2/ShotTap-Portable-0.5.2.exe)
-- [View checksums](https://github.com/VLStudio1/shottap/releases/download/v0.5.2/SHA256SUMS.txt)
+- [Download the Windows installer](https://github.com/VLStudio1/shottap/releases/download/v0.5.3/ShotTap-Setup-0.5.3.exe)
+- [Download the portable EXE](https://github.com/VLStudio1/shottap/releases/download/v0.5.3/ShotTap-Portable-0.5.3.exe)
+- [View checksums](https://github.com/VLStudio1/shottap/releases/download/v0.5.3/SHA256SUMS.txt)
 
 The installer adds normal Windows shortcuts. The portable EXE runs without installation.
 
