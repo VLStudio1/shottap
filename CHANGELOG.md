@@ -6,6 +6,24 @@ This project follows the spirit of [Keep a Changelog](https://keepachangelog.com
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-08
+
+### Added
+
+- Added Reverse Search: drop or browse for an image to find visual copies — exact matches and near-duplicates such as resized or re-saved files — stored on this computer.
+- Reverse Search always covers the capture library and any folders you add; picked folders are remembered between sessions.
+- Added a "Find similar images" action to the capture context menu.
+- Added a persisted image-hash cache so repeat searches skip already-hashed files.
+
+### Fixed
+
+- Browsing for an image now shows the searching state and progress immediately after the file is chosen, instead of appearing to do nothing while the search ran silently.
+- Tamed Reverse Search resource use: each search now compares against the newest 5,000 images (and says so when the folders hold more), decodes one image at a time so captures and the UI stay responsive, hashes library captures from their stored thumbnails instead of full files, and can be cancelled mid-search.
+
+### Notes
+
+- Reverse Search runs fully offline with perceptual hashing (dHash); no images leave the machine and no new dependencies were added.
+
 ## [0.5.3] - 2026-08-31
 
 ### Added

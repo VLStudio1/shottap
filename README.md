@@ -53,6 +53,13 @@ ShotTap is built for people who capture often and want the app to stay out of th
 - Grid and list layouts
 - Inspector/details panel
 
+### Reverse Search
+
+- Drop or browse for an image to find visual copies on this computer
+- Matches exact copies and near-duplicates such as resizes and re-saves
+- Always searches the capture library, plus any folders you add
+- Fully offline — images never leave the machine
+
 ### Editing
 
 - Screenshot editor
@@ -77,9 +84,9 @@ ShotTap is built for people who capture often and want the app to stay out of th
 
 Most users should download ShotTap from [GitHub Releases](https://github.com/VLStudio1/shottap/releases/latest), not build it from source.
 
-- [Download the Windows installer](https://github.com/VLStudio1/shottap/releases/download/v0.5.3/ShotTap-Setup-0.5.3.exe)
-- [Download the portable EXE](https://github.com/VLStudio1/shottap/releases/download/v0.5.3/ShotTap-Portable-0.5.3.exe)
-- [View checksums](https://github.com/VLStudio1/shottap/releases/download/v0.5.3/SHA256SUMS.txt)
+- [Download the Windows installer](https://github.com/VLStudio1/shottap/releases/download/v0.6.0/ShotTap-Setup-0.6.0.exe)
+- [Download the portable EXE](https://github.com/VLStudio1/shottap/releases/download/v0.6.0/ShotTap-Portable-0.6.0.exe)
+- [View checksums](https://github.com/VLStudio1/shottap/releases/download/v0.6.0/SHA256SUMS.txt)
 
 The installer adds normal Windows shortcuts. The portable EXE runs without installation.
 
