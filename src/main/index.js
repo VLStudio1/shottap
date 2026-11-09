@@ -952,10 +952,11 @@ function registerIpc() {
   });
 
   // ---- reverse image search channels ---------------------------------------
-  // The library is always in scope; the user's picked folders extend it. Every
-  // search runs off a fresh scope snapshot so a folder removed mid-search
-  // cannot keep feeding files into it. Library items hand over their thumbnail
-  // path too: hashing the 520px JPEG is far cheaper than the full capture.
+  // Scope is the library plus the user's picked folders, or — when the whole-
+  // computer toggle is on — every fixed drive (system trees excluded). Every
+  // search runs off a fresh snapshot so a folder removed mid-search cannot
+  // keep feeding files into it. Library items hand over their thumbnail path
+  // too: hashing the 520px JPEG is far cheaper than the full capture.
   function libraryThumbPath(item) {
     if (!item.thumb) {
       return null;
@@ -964,9 +965,16 @@ function registerIpc() {
     return path.join(library.getRoot(), ...item.thumb.split("/"));
   }
 
-  function searchScope() {
+  async function searchScope() {
+    const search = settings.get().search || {};
+    const wholeComputer = search.wholeComputer === true;
+    const roots = wholeComputer
+      ? [...new Set([...(await imagesearch.listDriveRoots()), ...(search.folders || [])])]
+      : [...(search.folders || [])];
+
     return {
-      roots: [...(settings.get().search?.folders || [])],
+      roots,
+      excludeSystemDirs: wholeComputer,
       libraryCandidates: library
         .list()
         .filter((item) => item.type === "image" && !item.trashedAt)
@@ -980,7 +988,7 @@ function registerIpc() {
       const skipped = result.skippedFolders || [];
 
       if (skipped.length > 0) {
-        toast(`Skipped ${skipped.length} folder${skipped.length === 1 ? "" : "s"} that could not be read.`, "info");
+        toast(`${skipped.length === 1 ? "That folder" : `${skipped.length} folders`} could not be read.`, "info");
       }
 
       return { ...result, query };
@@ -1007,7 +1015,14 @@ function registerIpc() {
         : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     );
 
-    return searchResultPayload(await imagesearch.searchByBuffer(bytes, searchScope()));
+    const scope = await searchScope();
+    return searchResultPayload(
+      await imagesearch.searchByBuffer(bytes, {
+        roots: scope.roots,
+        excludeSystemDirs: scope.excludeSystemDirs,
+        libraryCandidates: scope.libraryCandidates
+      })
+    );
   });
 
   ipcMain.handle("search:by-item", async (_event, id) => {
@@ -1027,11 +1042,12 @@ function registerIpc() {
 
     // Hash the query from the same thumbnail the candidates use, so an exact
     // duplicate (which also has a thumbnail) scores a true 100%.
-    const scope = searchScope();
+    const scope = await searchScope();
 
     return searchResultPayload(
       await imagesearch.searchByPath(thumbPath || filePath, {
         roots: scope.roots,
+        excludeSystemDirs: scope.excludeSystemDirs,
         libraryCandidates: scope.libraryCandidates,
         excludePath: filePath
       }),
@@ -1063,7 +1079,16 @@ function registerIpc() {
     // chosen — otherwise the search runs silently behind an unchanged UI.
     windows.sendToRenderer("app:search-started", query);
 
-    return searchResultPayload(await imagesearch.searchByPath(queryPath, searchScope()), query);
+    const scope = await searchScope();
+
+    return searchResultPayload(
+      await imagesearch.searchByPath(queryPath, {
+        roots: scope.roots,
+        excludeSystemDirs: scope.excludeSystemDirs,
+        libraryCandidates: scope.libraryCandidates
+      }),
+      query
+    );
   });
 
   ipcMain.handle("search:pick-folders", async () => {
@@ -1093,17 +1118,25 @@ function registerIpc() {
   });
 
   // Opening or revealing a result must never turn into a general "open any
-  // path on this machine" channel: only files inside the library root or a
-  // configured search folder pass.
-  function searchPathAllowed(filePath) {
+  // path on this machine" channel: only files inside the library root, a
+  // configured search folder, or — while the whole-computer toggle is on — a
+  // fixed drive, pass.
+  async function searchPathAllowed(filePath) {
     if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
       return false;
+    }
+
+    const search = settings.get().search || {};
+    const allowed = [library.getRoot(), ...(search.folders || [])];
+
+    if (search.wholeComputer) {
+      allowed.push(...(await imagesearch.listDriveRoots()));
     }
 
     const insensitive = process.platform === "win32";
     const resolved = path.resolve(filePath);
 
-    return [library.getRoot(), ...(settings.get().search?.folders || [])]
+    return allowed
       .map((root) => path.resolve(root))
       .some((root) => {
         const target = insensitive ? resolved.toLowerCase() : resolved;
@@ -1114,7 +1147,7 @@ function registerIpc() {
   }
 
   ipcMain.handle("search:open", async (_event, filePath) => {
-    if (!searchPathAllowed(filePath)) {
+    if (!(await searchPathAllowed(filePath))) {
       return { ok: false };
     }
 
@@ -1127,8 +1160,8 @@ function registerIpc() {
     return { ok: !error };
   });
 
-  ipcMain.handle("search:reveal", (_event, filePath) => {
-    if (!searchPathAllowed(filePath)) {
+  ipcMain.handle("search:reveal", async (_event, filePath) => {
+    if (!(await searchPathAllowed(filePath))) {
       return { ok: false };
     }
 

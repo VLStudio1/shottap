@@ -2308,3 +2308,24 @@ select.field {
 .search-progress .button {
   flex-shrink: 0;
 }
+
+.scope-chip.toggle {
+  border-style: solid;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.scope-chip.toggle:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.scope-chip.toggle.on {
+  border-color: var(--blue-border);
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+.scope-chip.toggle.on .icon {
+  color: var(--blue);
+}

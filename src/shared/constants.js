@@ -43,11 +43,11 @@ const THEMES = ["system", "light", "dark"];
 // threshold is the largest Hamming distance still counted as a match — exact
 // copies sit near 0, resized/re-compressed versions around 2-8.
 //
-// Folders are walked fully (up to SEARCH_MAX_COLLECT entries) but only the
-// NEWEST SEARCH_MAX_FILES images are decoded per search: full-resolution
-// decoding is expensive (a 4K PNG is ~100 MB of decoded pixels), and a folder
-// such as a video project with tens of thousands of frames would otherwise
-// pin the CPU and gigabytes of memory for hours.
+// Folders are walked fully (up to SEARCH_MAX_COLLECT entries) newest-first.
+// Decoding is the expensive part (a 4K PNG is ~100 MB of decoded pixels), so
+// each search decodes at most SEARCH_MAX_FILES uncached images — already-
+// cached hashes are compared for free, so repeat searches stay comprehensive
+// while the first pass stays bounded.
 const SEARCH_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "bmp"];
 const SEARCH_MATCH_THRESHOLD = 10;
 const SEARCH_MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -56,6 +56,27 @@ const SEARCH_MAX_FILES = 5000;
 const SEARCH_MAX_RESULTS = 100;
 const SEARCH_PREVIEW_WIDTH = 260;
 const DEFAULT_SEARCH_FOLDERS = [];
+
+// "Whole computer" walks every fixed drive; these directory names (any depth,
+// compared case-insensitively) are skipped there — system trees hold wallpaper
+// and installer imagery the user never means to match, and several refuse
+// reads outright.
+const SEARCH_EXCLUDED_DIR_NAMES = [
+  "$recycle.bin",
+  "$windows.~bt",
+  "$windows.~ws",
+  "appdata",
+  "intel",
+  "perflogs",
+  "program files",
+  "program files (x86)",
+  "programdata",
+  "recovery",
+  "system volume information",
+  "windows",
+  "windows.old"
+];
+const DEFAULT_WHOLE_COMPUTER = false;
 
 const SETTINGS_VERSION = 2;
 const MIN_REGION_SIZE = 8;
@@ -66,10 +87,12 @@ module.exports = {
   DEFAULT_PREFERENCES,
   DEFAULT_SEARCH_FOLDERS,
   DEFAULT_SHORTCUTS,
+  DEFAULT_WHOLE_COMPUTER,
   MEDIA_PROTOCOL,
   MIN_REGION_SIZE,
   RECORDING_FRAME_RATES,
   RECORDING_QUALITIES,
+  SEARCH_EXCLUDED_DIR_NAMES,
   SEARCH_IMAGE_EXTENSIONS,
   SEARCH_MATCH_THRESHOLD,
   SEARCH_MAX_COLLECT,

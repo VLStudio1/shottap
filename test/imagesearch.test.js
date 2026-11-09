@@ -185,22 +185,22 @@ test("an undecodable query fails cleanly", async () => {
   }
 });
 
-test("folders beyond the cap are searched newest-first and reported as truncated", async () => {
+test("folders beyond the decode budget are searched newest-first and reported as truncated", async () => {
   const env = await freshSearch();
 
   try {
     await imagesearch.init({ userDataDir: env.userDataDir, io: env.io, maxFiles: 1 });
 
+    const day = 86400000;
     await fs.writeFile(path.join(env.scanDir, "query.png"), `hash:${ZERO_HASH}`);
-    const oldDup = path.join(env.scanDir, "aaa-old-dup.png");
-    const newDup = path.join(env.scanDir, "zzz-new-dup.png");
-    await fs.writeFile(oldDup, `hash:${ZERO_HASH}`);
-    await fs.writeFile(newDup, `hash:${ZERO_HASH}`);
+    await fs.writeFile(path.join(env.scanDir, "aaa-old.png"), `hash:${ZERO_HASH}`);
+    await fs.writeFile(path.join(env.scanDir, "zzz-new.png"), `hash:${ZERO_HASH}`);
 
-    // The alphabetically-first file is the older one, so only the sort order
-    // can decide which single file the capped search hashes.
-    const past = new Date(Date.now() - 86400000);
-    await fs.utimes(oldDup, past, past);
+    // Explicit distinct ages so the newest-first order is deterministic:
+    // zzz-new (now) > query (2 days) > aaa-old (8 days). With a budget of one
+    // decode, only zzz-new is hashed; the rest are examined but skipped.
+    await fs.utimes(path.join(env.scanDir, "aaa-old.png"), new Date(Date.now() - 8 * day), new Date(Date.now() - 8 * day));
+    await fs.utimes(path.join(env.scanDir, "query.png"), new Date(Date.now() - 2 * day), new Date(Date.now() - 2 * day));
 
     const result = await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), {
       roots: [env.scanDir]
@@ -209,12 +209,77 @@ test("folders beyond the cap are searched newest-first and reported as truncated
     assert.equal(result.ok, true);
     assert.equal(result.truncated, true);
     assert.equal(result.totalFound, 3);
-    assert.equal(result.scanned, 1);
-    assert.equal(result.results.length, 1);
-    assert.equal(result.results[0].name, "zzz-new-dup.png");
+    assert.equal(result.scanned, 3);
+    assert.deepEqual(result.results.map((match) => match.name), ["zzz-new.png"]);
   } finally {
     await env.cleanup();
   }
+});
+
+test("already-cached files beyond the budget are still compared", async () => {
+  const env = await freshSearch();
+
+  try {
+    await fs.writeFile(path.join(env.scanDir, "query.png"), `hash:${ZERO_HASH}`);
+    await fs.writeFile(path.join(env.scanDir, "dup-old.png"), `hash:${ZERO_HASH}`);
+    await fs.writeFile(path.join(env.scanDir, "dup-new.png"), `hash:${ZERO_HASH}`);
+
+    // First pass with the default budget: everything gets decoded and cached.
+    await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), { roots: [env.scanDir] });
+    await imagesearch.flush();
+
+    // Restart with a one-decode budget and a cache reloaded from disk — the
+    // way a later session would experience it.
+    await imagesearch.init({ userDataDir: env.userDataDir, io: fakeIo(), maxFiles: 1 });
+    const result = await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), { roots: [env.scanDir] });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.truncated, false, "cache hits must not count against the budget");
+    assert.equal(result.results.length, 2);
+    assert.equal(result.scanned, 3);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test("whole-computer walks skip system directories", async () => {
+  const env = await freshSearch();
+
+  try {
+    await fs.writeFile(path.join(env.scanDir, "query.png"), `hash:${ZERO_HASH}`);
+
+    const windowsDir = path.join(env.scanDir, "Windows");
+    const normalDir = path.join(env.scanDir, "pictures");
+    await fs.mkdir(windowsDir);
+    await fs.mkdir(normalDir);
+    await fs.writeFile(path.join(windowsDir, "wallpaper.png"), `hash:${ZERO_HASH}`);
+    await fs.writeFile(path.join(normalDir, "holiday.png"), `hash:${ZERO_HASH}`);
+
+    const excluded = await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), {
+      roots: [env.scanDir],
+      excludeSystemDirs: true
+    });
+    assert.ok(!excluded.results.some((match) => match.name === "wallpaper.png"), "system directory was walked");
+    assert.ok(excluded.results.some((match) => match.name === "holiday.png"));
+
+    const included = await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), {
+      roots: [env.scanDir]
+    });
+    assert.ok(included.results.some((match) => match.name === "wallpaper.png"), "explicitly picked folders walk everything");
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test("drive roots are probed by letter and only readable ones are kept", async () => {
+  const readable = new Set(["C:\\", "D:\\"]);
+  const access = async (candidate) => {
+    if (!readable.has(candidate)) {
+      throw new Error("no media");
+    }
+  };
+
+  assert.deepEqual(await imagesearch.listDriveRoots(access), ["C:\\", "D:\\"]);
 });
 
 test("library candidates hash from their thumbnail when one exists", async () => {

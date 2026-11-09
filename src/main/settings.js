@@ -12,6 +12,7 @@ const {
   DEFAULT_PREFERENCES,
   DEFAULT_SEARCH_FOLDERS,
   DEFAULT_SHORTCUTS,
+  DEFAULT_WHOLE_COMPUTER,
   RECORDING_FRAME_RATES,
   RECORDING_QUALITIES,
   SETTINGS_VERSION,
@@ -99,8 +100,9 @@ function normalizeTheme(raw) {
   return THEMES.includes(raw) ? raw : "system";
 }
 
-// Reverse-search folders the user picked. Only absolute paths are kept so a
-// relative value can never make the search walk somewhere unexpected.
+// Reverse-search scope: folders the user picked (absolute paths only, so a
+// relative value can never make the search walk somewhere unexpected) plus the
+// whole-computer toggle.
 function normalizeSearch(raw) {
   const folders = Array.isArray(raw?.folders)
     ? raw.folders
@@ -121,7 +123,7 @@ function normalizeSearch(raw) {
     }
   }
 
-  return { folders: valid };
+  return { folders: valid, wholeComputer: raw?.wholeComputer === true || DEFAULT_WHOLE_COMPUTER };
 }
 
 // v1 files used { shortcuts: { region, fullScreen, copyAll } } and had no

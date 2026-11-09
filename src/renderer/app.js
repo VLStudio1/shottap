@@ -639,6 +639,7 @@
   function renderSimilarView() {
     const search = state.searchState;
     const folders = state.settings?.search?.folders || [];
+    const wholeComputer = state.settings?.search?.wholeComputer === true;
 
     const summary =
       search.status === "searching"
@@ -654,6 +655,7 @@
     const chips = `
       <div class="scope-chips">
         <span class="scope-chip library">${icons.icon("image", { size: 13 })} Library</span>
+        <button class="scope-chip toggle${wholeComputer ? " on" : ""}" type="button" data-command="search-whole-computer" aria-pressed="${wholeComputer}" title="Search every drive on this computer (system folders excluded)">${icons.icon("monitor", { size: 13 })} Whole computer</button>
         ${folders
           .map(
             (folder) => `
@@ -722,8 +724,9 @@
         ? `<div class="note" style="margin-top:16px">
              ${icons.icon("info", { size: 16 })}
              <span>
-               The search folders hold ${search.totalFound.toLocaleString()} images — too many to compare in one pass, so only the
-               newest ${search.scanned.toLocaleString()} were searched. Pick a narrower folder to cover the rest.
+               The search scope holds ${search.totalFound.toLocaleString()} images — more unseen images than one pass can compare.
+               This pass covered the newest ${search.scanned.toLocaleString()}, plus everything already indexed from earlier searches.
+               Repeat the search to pick up where it left off, or pick a narrower folder for full coverage.
              </span>
            </div>`
         : "";
@@ -774,7 +777,10 @@
 
   async function runImageSearch(file) {
     if (!isSearchableFile(file.name)) {
-      showToast({ message: "Reverse Search supports PNG, JPG, JPEG and BMP images.", tone: "error" });
+      showToast({
+        message: "That is not a supported image. Drop a PNG, JPG, JPEG or BMP file — to search inside a folder, add it with Add folder below.",
+        tone: "error"
+      });
       return;
     }
 
@@ -1503,6 +1509,11 @@
           state.settings = result.settings;
           render();
         }
+      } else if (command === "search-whole-computer") {
+        state.settings = await api.settings.update({
+          search: { wholeComputer: !(state.settings?.search?.wholeComputer === true) }
+        });
+        render();
       } else if (command === "search-new") {
         api.search.cancel();
         resetSearchState();

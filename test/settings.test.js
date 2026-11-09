@@ -118,19 +118,41 @@ test("search folders keep absolute paths only and survive disk round trips", asy
       search: { folders: [absolute, "relative/path", "", absolute, null, 42] }
     });
 
-    assert.deepEqual(settings.get().search, { folders: [absolute] });
+    assert.deepEqual(settings.get().search, { folders: [absolute], wholeComputer: false });
 
     const written = JSON.parse(await fs.readFile(path.join(directory, "settings.json"), "utf8"));
-    assert.deepEqual(written.search, { folders: [absolute] });
+    assert.deepEqual(written.search, { folders: [absolute], wholeComputer: false });
 
     const reloaded = await settings.init({ userDataDir: directory, saveDirectory: path.join(directory, "media") });
-    assert.deepEqual(reloaded.search, { folders: [absolute] });
+    assert.deepEqual(reloaded.search, { folders: [absolute], wholeComputer: false });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("the whole-computer toggle persists and preserves picked folders", async () => {
+  const directory = await tempDir();
+
+  try {
+    await settings.init({ userDataDir: directory, saveDirectory: path.join(directory, "media") });
+
+    const absolute = process.platform === "win32" ? "C:\\Users\\tito\\Videos" : "/home/tito/videos";
+    await settings.update({ search: { folders: [absolute] } });
+    await settings.update({ search: { wholeComputer: true } });
+
+    assert.deepEqual(settings.get().search, { folders: [absolute], wholeComputer: true });
+
+    const reloaded = await settings.init({ userDataDir: directory, saveDirectory: path.join(directory, "media") });
+    assert.deepEqual(reloaded.search, { folders: [absolute], wholeComputer: true });
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
 
 test("normalising without a search section yields the default empty folder list", () => {
-  assert.deepEqual(settings.normalize({}).search, { folders: [] });
-  assert.deepEqual(settings.normalize({ search: { folders: "not-an-array" } }).search, { folders: [] });
+  assert.deepEqual(settings.normalize({}).search, { folders: [], wholeComputer: false });
+  assert.deepEqual(settings.normalize({ search: { folders: "not-an-array", wholeComputer: "yes" } }).search, {
+    folders: [],
+    wholeComputer: false
+  });
 });

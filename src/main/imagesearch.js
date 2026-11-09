@@ -12,6 +12,7 @@ const path = require("path");
 
 const { dhash, hamming, similarity } = require("./phash");
 const {
+  SEARCH_EXCLUDED_DIR_NAMES,
   SEARCH_IMAGE_EXTENSIONS,
   SEARCH_MATCH_THRESHOLD,
   SEARCH_MAX_FILE_BYTES,
@@ -163,16 +164,39 @@ function samePath(a, b) {
     : left === right;
 }
 
+// Drive letters are probed with a stat rather than listed through WMI or
+// PowerShell: it is dependency-free, and an empty DVD drive simply fails it.
+async function listDriveRoots(access = fs.access) {
+  const roots = [];
+
+  for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+    const root = `${letter}:\\`;
+
+    try {
+      await access(root);
+      roots.push(root);
+    } catch (_error) {
+      // No such drive, or no media in it.
+    }
+  }
+
+  return roots;
+}
+
 // Walks the given folders breadth-first, collecting image files within the
-// size cap. The full walk is cheap (names + stats), so it always completes;
-// only the later decode stage is capped. Files are returned newest-first —
-// when a search must stop at maxFiles, the images most likely to be the
-// recent copies the user is looking for are hashed first. Unreadable or
-// missing folders are reported in `skipped` instead of failing the search.
-async function collectImageFiles(rootDirectories) {
+// size cap, newest-first. The walk itself is cheap (names + stats) and always
+// completes; the decode stage in hashCandidates is where the budget applies.
+//
+// Read failures are split by meaning: a root the caller explicitly named that
+// cannot be read matters to the user, while unreadable sub-directories are
+// routine on broad scans (system folders, junctions) and stay silent.
+async function collectImageFiles(rootDirectories, { excludeSystemDirs = false } = {}) {
   const files = [];
-  const skipped = [];
-  const queue = [...rootDirectories];
+  const skippedRoots = [];
+  let skippedNested = 0;
+  const roots = [...rootDirectories];
+  const excluded = excludeSystemDirs ? new Set(SEARCH_EXCLUDED_DIR_NAMES) : null;
+  const queue = [...roots];
   const seen = new Set();
 
   while (queue.length > 0 && files.length < SEARCH_MAX_COLLECT) {
@@ -186,7 +210,11 @@ async function collectImageFiles(rootDirectories) {
     try {
       entries = await fs.readdir(directory, { withFileTypes: true });
     } catch (_error) {
-      skipped.push(directory);
+      if (roots.some((root) => samePath(root, directory))) {
+        skippedRoots.push(directory);
+      } else {
+        skippedNested += 1;
+      }
       continue;
     }
 
@@ -194,9 +222,13 @@ async function collectImageFiles(rootDirectories) {
       const full = path.join(directory, entry.name);
 
       // Symlinked directories are skipped: they can loop and reach outside
-      // the folder the user actually picked.
+      // the folder the user actually picked. Whole-computer walks also skip
+      // system trees — wallpaper and installer imagery are noise, and several
+      // of those directories refuse reads anyway.
       if (entry.isDirectory() && !entry.isSymbolicLink()) {
-        queue.push(full);
+        if (!excluded || !excluded.has(entry.name.toLowerCase())) {
+          queue.push(full);
+        }
       } else if (entry.isFile() && hasImageExtension(entry.name)) {
         try {
           const stat = await fs.stat(full);
@@ -216,9 +248,8 @@ async function collectImageFiles(rootDirectories) {
 
   const totalFound = files.length;
   files.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  files.length = Math.min(files.length, maxFiles);
 
-  return { files, skipped, totalFound };
+  return { files, skippedRoots, skippedNested, totalFound };
 }
 
 // Stats the library's image files so they hash through the same cache path as
@@ -260,13 +291,19 @@ async function statLibraryCandidates(libraryCandidates, myGeneration) {
 // decode allocates tens of megabytes and can take ~100 ms, and running them
 // back to back froze captures, IPC and window painting while the RSS climbed
 // into gigabytes. One image at a time keeps the app and the system responsive.
+//
+// At most `maxFiles` images are DECODED per search — but files whose hash is
+// already cached keep being compared for free, so repeat searches cover the
+// whole scope while only paying for images that are new or changed.
 async function hashCandidates(candidates, myGeneration) {
   const hashed = [];
   let processed = 0;
+  let decoded = 0;
+  let budgetExhausted = false;
 
   for (const candidate of candidates) {
     if (myGeneration !== generation) {
-      return null;
+      return { superseded: true, hashed: [], processed, budgetExhausted: false };
     }
 
     const hashSource = candidate.hashSourcePath || candidate.path;
@@ -275,6 +312,10 @@ async function hashCandidates(candidates, myGeneration) {
 
     if (cached && cached.size === candidate.size && cached.mtimeMs === candidate.mtimeMs) {
       hash = cached.hash;
+    } else if (decoded >= maxFiles) {
+      // Out of decode budget: this file is skipped this pass, but the walk
+      // continues so already-cached files further down are still compared.
+      budgetExhausted = true;
     } else {
       try {
         hash = await io.hashFile(hashSource);
@@ -287,6 +328,7 @@ async function hashCandidates(candidates, myGeneration) {
         schedulePersist();
       }
 
+      decoded += 1;
       await new Promise((resolve) => setImmediate(resolve));
     }
 
@@ -298,15 +340,15 @@ async function hashCandidates(candidates, myGeneration) {
     emitter.emit("progress", { phase: "hash", scanned: processed, total: candidates.length, matched: -1 });
   }
 
-  return hashed;
+  return { hashed, processed, budgetExhausted };
 }
 
-async function runSearch({ queryHash, roots, libraryCandidates, excludePath }) {
+async function runSearch({ queryHash, roots, excludeSystemDirs, libraryCandidates, excludePath }) {
   const myGeneration = ++generation;
 
   emitter.emit("progress", { phase: "scan", scanned: 0, total: 0, matched: -1 });
 
-  const folderScan = await collectImageFiles(roots);
+  const folderScan = await collectImageFiles(roots, { excludeSystemDirs: Boolean(excludeSystemDirs) });
   const libraryFiles = await statLibraryCandidates(libraryCandidates, myGeneration);
   if (libraryFiles === null) {
     return { ok: false, superseded: true };
@@ -326,12 +368,14 @@ async function runSearch({ queryHash, roots, libraryCandidates, excludePath }) {
   const candidates = [...byPath.values()];
 
   emitter.emit("progress", { phase: "hash", scanned: 0, total: candidates.length, matched: -1 });
-  const hashed = await hashCandidates(candidates, myGeneration);
-  if (hashed === null) {
+  const outcome = await hashCandidates(candidates, myGeneration);
+  if (outcome.superseded) {
     return { ok: false, superseded: true };
   }
 
+  const { hashed, processed, budgetExhausted } = outcome;
   const matches = [];
+
   for (const candidate of hashed) {
     if (excludePath && samePath(candidate.path, excludePath)) {
       continue;
@@ -346,7 +390,7 @@ async function runSearch({ queryHash, roots, libraryCandidates, excludePath }) {
   matches.sort((a, b) => a.distance - b.distance);
   const limited = matches.slice(0, SEARCH_MAX_RESULTS);
 
-  emitter.emit("progress", { phase: "hash", scanned: candidates.length, total: candidates.length, matched: limited.length });
+  emitter.emit("progress", { phase: "hash", scanned: processed, total: candidates.length, matched: limited.length });
 
   // Previews are built only for the final matches, so cache hits never
   // re-decode images.
@@ -377,14 +421,14 @@ async function runSearch({ queryHash, roots, libraryCandidates, excludePath }) {
   return {
     ok: true,
     results,
-    scanned: candidates.length,
+    scanned: processed,
     totalFound: folderScan.totalFound + libraryFiles.length,
-    truncated: folderScan.totalFound > folderScan.files.length,
-    skippedFolders: folderScan.skipped
+    truncated: budgetExhausted,
+    skippedFolders: folderScan.skippedRoots
   };
 }
 
-async function searchByBuffer(buffer, { roots = [], libraryCandidates = [] } = {}) {
+async function searchByBuffer(buffer, { roots = [], excludeSystemDirs = false, libraryCandidates = [] } = {}) {
   let queryHash = null;
   try {
     queryHash = await io.hashBuffer(buffer);
@@ -396,10 +440,10 @@ async function searchByBuffer(buffer, { roots = [], libraryCandidates = [] } = {
     return { ok: false, reason: "undecodable" };
   }
 
-  return runSearch({ queryHash, roots, libraryCandidates });
+  return runSearch({ queryHash, roots, excludeSystemDirs, libraryCandidates });
 }
 
-async function searchByPath(filePath, { roots = [], libraryCandidates = [], excludePath } = {}) {
+async function searchByPath(filePath, { roots = [], excludeSystemDirs = false, libraryCandidates = [], excludePath } = {}) {
   let queryHash = null;
   try {
     queryHash = await io.hashFile(filePath);
@@ -411,7 +455,7 @@ async function searchByPath(filePath, { roots = [], libraryCandidates = [], excl
     return { ok: false, reason: "undecodable" };
   }
 
-  return runSearch({ queryHash, roots, libraryCandidates, excludePath: excludePath || filePath });
+  return runSearch({ queryHash, roots, excludeSystemDirs, libraryCandidates, excludePath: excludePath || filePath });
 }
 
 function cancel() {
@@ -434,6 +478,7 @@ module.exports = {
   flush,
   hasImageExtension,
   init,
+  listDriveRoots,
   previewFor,
   samePath,
   searchByBuffer,

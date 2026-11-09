@@ -6,6 +6,18 @@ This project follows the spirit of [Keep a Changelog](https://keepachangelog.com
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-09
+
+### Added
+
+- Added a "Whole computer" toggle to Reverse Search: searches every fixed drive while skipping system folders (Windows, Program Files, AppData and friends) that only hold wallpaper and installer imagery.
+- Reverse Search now compares already-indexed images for free even past the newest-5,000 decode budget, so every repeat search over a huge folder covers more ground than the last.
+
+### Fixed
+
+- Searching a broad folder no longer looks broken: unreadable system sub-folders are skipped silently, and only a folder you explicitly picked that cannot be read is reported.
+- Dropping a non-image file onto Reverse Search now explains what to do instead of showing a terse format error.
+
 ## [0.6.1] - 2026-11-09
 
 ### Security
