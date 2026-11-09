@@ -14,6 +14,7 @@
     clipboard: { label: "Clipboard", icon: "clipboard", group: "library" },
     favorites: { label: "Favorites", icon: "star", group: "library" },
     trash: { label: "Trash", icon: "trash", group: "library" },
+    similar: { label: "Reverse Search", icon: "imageSearch", group: "tools" },
     editor: { label: "Editor", icon: "pencil", group: "tools" },
     hotkeys: { label: "Hotkeys", icon: "keyboard", group: "settings" },
     general: { label: "General", icon: "sliders", group: "settings" },
@@ -98,8 +99,23 @@
     sort: "newest",
     filter: "all",
     search: "",
-    listeningAction: null
+    listeningAction: null,
+    searchState: {
+      query: null,
+      status: "idle",
+      progress: null,
+      results: [],
+      scanned: 0,
+      totalFound: 0,
+      truncated: false,
+      message: ""
+    }
   };
+
+  // Mirrors SEARCH_IMAGE_EXTENSIONS in shared/constants.js; the renderer checks
+  // first so dropping a non-image gets a clear message instead of a decode
+  // failure from the main process.
+  const SEARCHABLE_EXTENSIONS = ["png", "jpg", "jpeg", "bmp"];
 
   const elements = {
     nav: document.getElementById("nav"),
@@ -552,6 +568,297 @@
   }
 
   // -------------------------------------------------------------------------
+  // Reverse search view
+  // -------------------------------------------------------------------------
+  function setQueryPreview(query) {
+    const previous = state.searchState.query?.preview;
+
+    if (previous && previous.startsWith("blob:")) {
+      URL.revokeObjectURL(previous);
+    }
+
+    state.searchState.query = query;
+  }
+
+  function resetSearchState() {
+    setQueryPreview(null);
+    state.searchState.status = "idle";
+    state.searchState.progress = null;
+    state.searchState.results = [];
+    state.searchState.scanned = 0;
+    state.searchState.totalFound = 0;
+    state.searchState.truncated = false;
+    state.searchState.message = "";
+  }
+
+  function isSearchableFile(fileName) {
+    const extension = String(fileName).split(".").pop().toLowerCase();
+
+    return SEARCHABLE_EXTENSIONS.includes(extension);
+  }
+
+  function folderNameFor(folderPath) {
+    const parts = String(folderPath).split(/[\\/]+/).filter(Boolean);
+
+    return parts[parts.length - 1] || folderPath;
+  }
+
+  function parentNameFor(filePath) {
+    const parts = String(filePath).split(/[\\/]+/).filter(Boolean);
+
+    return parts.length > 1 ? parts[parts.length - 2] : "";
+  }
+
+  function searchResultCard(result) {
+    const preview = result.preview
+      ? `<img src="${result.preview}" alt="" loading="lazy" />`
+      : `<span class="thumb-fallback">${icons.icon("image", { size: 26 })}</span>`;
+
+    return `
+      <article class="media-card result-card">
+        <div class="media-thumb">
+          ${preview}
+          <span class="thumb-badge similarity-badge">${result.similarity}% match</span>
+        </div>
+        <div class="media-body">
+          <div class="media-title-row">
+            <span class="media-title" title="${format.escapeHtml(result.path)}">${format.escapeHtml(result.name)}</span>
+          </div>
+          <div class="media-meta">
+            <span>${format.fileSize(result.size)}</span>
+            <span class="dot-sep">${format.escapeHtml(result.libraryItemId ? "Library" : parentNameFor(result.path) || "Folder")}</span>
+          </div>
+          <div class="result-actions">
+            <button class="button small" type="button" data-search-open="${format.escapeHtml(result.path)}">${icons.icon("open", { size: 13 })} Open</button>
+            <button class="button small" type="button" data-search-reveal="${format.escapeHtml(result.path)}">${icons.icon("folder", { size: 13 })} Show in folder</button>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function renderSimilarView() {
+    const search = state.searchState;
+    const folders = state.settings?.search?.folders || [];
+
+    const summary =
+      search.status === "searching"
+        ? "Searching…"
+        : search.status === "error"
+          ? "Search failed"
+          : search.status === "done"
+            ? search.truncated
+              ? `${search.results.length} match${search.results.length === 1 ? "" : "es"} in the newest ${search.scanned} of ${search.totalFound} images`
+              : `${search.results.length} match${search.results.length === 1 ? "" : "es"} across ${search.scanned} image${search.scanned === 1 ? "" : "s"}`
+            : "Find copies of an image stored on this computer";
+
+    const chips = `
+      <div class="scope-chips">
+        <span class="scope-chip library">${icons.icon("image", { size: 13 })} Library</span>
+        ${folders
+          .map(
+            (folder) => `
+            <span class="scope-chip" title="${format.escapeHtml(folder)}">
+              ${icons.icon("folder", { size: 13 })}
+              <span class="scope-chip-name">${format.escapeHtml(folderNameFor(folder))}</span>
+              <button class="scope-chip-remove" type="button" data-remove-folder="${format.escapeHtml(folder)}" aria-label="Remove folder" title="Remove folder">${icons.icon("close", { size: 12 })}</button>
+            </span>`
+          )
+          .join("")}
+        <button class="scope-chip add" type="button" data-command="search-add-folder">${icons.icon("open", { size: 13 })} Add folder</button>
+      </div>`;
+
+    const previewInner = search.query?.preview
+      ? `<img src="${search.query.preview}" alt="" />`
+      : `<span class="drop-zone-icon">${icons.icon("imageSearch", { size: 30 })}</span>`;
+
+    const dropZone = `
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-zone-preview">${previewInner}</div>
+        <div class="drop-zone-text">
+          <h3>${search.query ? format.escapeHtml(search.query.name) : "Drop an image here"}</h3>
+          <p>${
+            search.query
+              ? "Comparing this image against your library and the folders below."
+              : "Or browse for a file. ShotTap looks for visual copies — PNG, JPG, JPEG and BMP — stored on this computer, fully offline."
+          }</p>
+          <div class="drop-zone-actions">
+            <button class="button primary" type="button" data-command="search-browse">${icons.icon("open", { size: 15 })} Browse images…</button>
+            ${search.query ? `<button class="button" type="button" data-command="search-new">${icons.icon("close", { size: 15 })} Start over</button>` : ""}
+          </div>
+        </div>
+      </div>`;
+
+    const progressBlock =
+      search.status === "searching"
+        ? `<div class="search-progress">
+             <div class="progress-track"><div class="progress-bar" id="searchProgressBar" style="width: 8%"></div></div>
+             <span class="search-progress-label" id="searchProgressLabel">Scanning folders…</span>
+             <button class="button small" type="button" data-command="search-cancel">${icons.icon("close", { size: 13 })} Cancel</button>
+           </div>`
+        : "";
+
+    let resultsBlock = "";
+
+    if (search.status === "error") {
+      resultsBlock = `
+        <div class="empty-state">
+          <span class="empty-icon">${icons.icon("alert", { size: 24 })}</span>
+          <h3>Search failed</h3>
+          <p>${format.escapeHtml(search.message || "That image could not be read.")}</p>
+        </div>`;
+    } else if (search.status === "done" && search.results.length === 0) {
+      resultsBlock = `
+        <div class="empty-state">
+          <span class="empty-icon">${icons.icon("search", { size: 24 })}</span>
+          <h3>No matches found</h3>
+          <p>Searched ${search.scanned} image${search.scanned === 1 ? "" : "s"} — nothing looked like this one. The closest copies may have been cropped or heavily edited.</p>
+        </div>`;
+    } else if (search.status === "done") {
+      resultsBlock = `<div class="media-grid">${search.results.map(searchResultCard).join("")}</div>`;
+    }
+
+    const truncatedNote =
+      search.status === "done" && search.truncated
+        ? `<div class="note" style="margin-top:16px">
+             ${icons.icon("info", { size: 16 })}
+             <span>
+               The search folders hold ${search.totalFound.toLocaleString()} images — too many to compare in one pass, so only the
+               newest ${search.scanned.toLocaleString()} were searched. Pick a narrower folder to cover the rest.
+             </span>
+           </div>`
+        : "";
+
+    return `
+      <div class="view-head">
+        <div class="view-title">
+          <h1>Reverse Search</h1>
+          <p>${summary}</p>
+        </div>
+      </div>
+      ${dropZone}
+      ${progressBlock}
+      ${resultsBlock}
+      ${truncatedNote}
+      ${chips}`;
+  }
+
+  // Applies a search response from the main process. Superseded results are
+  // dropped silently — a newer search owns the view.
+  function applySearchResult(result) {
+    if (!result || result.superseded) {
+      return;
+    }
+
+    if (!result.ok) {
+      state.searchState.status = "error";
+      state.searchState.message = result.message || "That image could not be read.";
+      state.searchState.progress = null;
+      state.searchState.results = [];
+      renderMain();
+      return;
+    }
+
+    if (result.query) {
+      setQueryPreview(result.query);
+    }
+
+    state.searchState.status = "done";
+    state.searchState.progress = null;
+    state.searchState.results = result.results || [];
+    state.searchState.scanned = result.scanned || 0;
+    state.searchState.totalFound = result.totalFound || result.scanned || 0;
+    state.searchState.truncated = Boolean(result.truncated);
+    state.searchState.message = "";
+    renderMain();
+  }
+
+  async function runImageSearch(file) {
+    if (!isSearchableFile(file.name)) {
+      showToast({ message: "Reverse Search supports PNG, JPG, JPEG and BMP images.", tone: "error" });
+      return;
+    }
+
+    let buffer;
+
+    try {
+      buffer = await file.arrayBuffer();
+    } catch (_error) {
+      showToast({ message: "That file could not be read.", tone: "error" });
+      return;
+    }
+
+    setQueryPreview({ name: file.name, preview: URL.createObjectURL(file) });
+    state.searchState.status = "searching";
+    state.searchState.progress = null;
+    state.searchState.results = [];
+    state.searchState.scanned = 0;
+    state.searchState.totalFound = 0;
+    state.searchState.truncated = false;
+    state.searchState.message = "";
+    renderMain();
+
+    let result;
+
+    try {
+      result = await api.search.findByImage(buffer);
+    } catch (_error) {
+      result = { ok: false, message: "The search failed unexpectedly. Please try again." };
+    }
+
+    applySearchResult(result);
+  }
+
+  async function findSimilarForItem(id) {
+    navigate("similar");
+    state.searchState.status = "searching";
+    state.searchState.progress = null;
+    state.searchState.results = [];
+    state.searchState.scanned = 0;
+    state.searchState.totalFound = 0;
+    state.searchState.truncated = false;
+    state.searchState.message = "";
+    renderMain();
+
+    let result;
+
+    try {
+      result = await api.search.findByItem(id);
+    } catch (_error) {
+      result = { ok: false, message: "The search failed unexpectedly. Please try again." };
+    }
+
+    applySearchResult(result);
+  }
+
+  // Progress events patch the DOM in place — a full re-render per chunk would
+  // rebuild the grid dozens of times per search.
+  function updateSearchProgressUi() {
+    const bar = document.getElementById("searchProgressBar");
+    const label = document.getElementById("searchProgressLabel");
+
+    if (!bar || !label || state.searchState.status !== "searching") {
+      return;
+    }
+
+    const progress = state.searchState.progress;
+
+    if (!progress || progress.phase === "scan") {
+      label.textContent =
+        progress && progress.scanned > 0
+          ? `Scanning folders… ${progress.scanned.toLocaleString()} images found`
+          : "Scanning folders…";
+      bar.style.width = "8%";
+      return;
+    }
+
+    const total = progress.total || 0;
+    const scanned = Math.min(progress.scanned || 0, total);
+
+    label.textContent = total > 0 ? `Comparing ${scanned} of ${total} images…` : "Comparing images…";
+    bar.style.width = total > 0 ? `${Math.round((scanned / total) * 100)}%` : "8%";
+  }
+
+  // -------------------------------------------------------------------------
   // Settings views
   // -------------------------------------------------------------------------
   function statusPill(action) {
@@ -861,7 +1168,8 @@
       general: renderGeneralView,
       appearance: renderAppearanceView,
       about: renderAboutView,
-      editor: renderEditorView
+      editor: renderEditorView,
+      similar: renderSimilarView
     };
 
     elements.main.innerHTML = renderers[state.view] ? renderers[state.view]() : renderLibraryView(state.view);
@@ -927,6 +1235,9 @@
       case "edit":
         await window.SCEditor.open(item);
         break;
+      case "similar":
+        await findSimilarForItem(id);
+        break;
       case "reveal":
         await api.library.reveal(id);
         break;
@@ -983,7 +1294,8 @@
           ...(item.type === "image"
             ? [
                 { command: "edit", icon: "pencil", label: "Edit image" },
-                { command: "copy", icon: "copy", label: "Copy" }
+                { command: "copy", icon: "copy", label: "Copy" },
+                { command: "similar", icon: "imageSearch", label: "Find similar images" }
               ]
             : []),
           { command: "reveal", icon: "folder", label: "Show in folder" },
@@ -1127,6 +1439,30 @@
       return;
     }
 
+    const removeFolderButton = target.closest("[data-remove-folder]");
+
+    if (removeFolderButton) {
+      const folder = removeFolderButton.dataset.removeFolder;
+      const folders = (state.settings?.search?.folders || []).filter((entry) => entry !== folder);
+      state.settings = await api.settings.update({ search: { folders } });
+      render();
+      return;
+    }
+
+    const searchOpenButton = target.closest("[data-search-open]");
+
+    if (searchOpenButton) {
+      await api.search.open(searchOpenButton.dataset.searchOpen);
+      return;
+    }
+
+    const searchRevealButton = target.closest("[data-search-reveal]");
+
+    if (searchRevealButton) {
+      await api.search.reveal(searchRevealButton.dataset.searchReveal);
+      return;
+    }
+
     const commandButton = target.closest("[data-command]");
 
     if (commandButton) {
@@ -1154,6 +1490,29 @@
           state.settings = result.settings;
           render();
         }
+      } else if (command === "search-browse") {
+        const result = await api.search.pickImage();
+
+        if (!result?.canceled) {
+          applySearchResult(result);
+        }
+      } else if (command === "search-add-folder") {
+        const result = await api.search.pickFolders();
+
+        if (result?.settings) {
+          state.settings = result.settings;
+          render();
+        }
+      } else if (command === "search-new") {
+        api.search.cancel();
+        resetSearchState();
+        render();
+      } else if (command === "search-cancel") {
+        api.search.cancel();
+        state.searchState.status = "idle";
+        state.searchState.progress = null;
+        state.searchState.results = [];
+        renderMain();
       }
 
       return;
@@ -1194,6 +1553,40 @@
       if (item && !item.trashedAt) {
         await api.library.open(item.id);
       }
+    }
+  });
+
+  // Reverse Search accepts drops only while its view is open, so dropping a
+  // file on the library or settings can never trigger an unexpected search.
+  document.addEventListener("dragover", (event) => {
+    if (state.view !== "similar") {
+      return;
+    }
+
+    event.preventDefault();
+    document.getElementById("dropZone")?.classList.add("drag-over");
+  });
+
+  document.addEventListener("dragleave", (event) => {
+    if (state.view !== "similar" || event.relatedTarget) {
+      return;
+    }
+
+    document.getElementById("dropZone")?.classList.remove("drag-over");
+  });
+
+  document.addEventListener("drop", async (event) => {
+    if (state.view !== "similar") {
+      return;
+    }
+
+    event.preventDefault();
+    document.getElementById("dropZone")?.classList.remove("drag-over");
+
+    const file = event.dataTransfer?.files?.[0];
+
+    if (file) {
+      await runImageSearch(file);
     }
   });
 
@@ -1410,6 +1803,34 @@
     render();
   });
 
+  api.onSearchProgress((payload) => {
+    if (state.view !== "similar" || !payload) {
+      return;
+    }
+
+    state.searchState.progress = payload;
+    updateSearchProgressUi();
+  });
+
+  // Sent when a file picked from the Browse dialog starts searching — the pick
+  // and the search share one invoke, so this push is the renderer's only signal
+  // that the dialog closed and work has begun.
+  api.onSearchStarted((query) => {
+    if (state.view !== "similar" || !query) {
+      return;
+    }
+
+    setQueryPreview(query);
+    state.searchState.status = "searching";
+    state.searchState.progress = null;
+    state.searchState.results = [];
+    state.searchState.scanned = 0;
+    state.searchState.totalFound = 0;
+    state.searchState.truncated = false;
+    state.searchState.message = "";
+    renderMain();
+  });
+
   api.onToast((payload) => showToast(payload));
 
   // -------------------------------------------------------------------------
@@ -1437,6 +1858,7 @@
     navigate,
     state,
     selectItem,
-    runItemCommand
+    runItemCommand,
+    findSimilarForItem
   };
 })();

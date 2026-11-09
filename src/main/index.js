@@ -5,9 +5,10 @@ const path = require("path");
 const { Readable } = require("stream");
 const { fileURLToPath, pathToFileURL } = require("url");
 
-const { CAPTURE_ACTIONS, MEDIA_PROTOCOL } = require("../shared/constants");
+const { CAPTURE_ACTIONS, MEDIA_PROTOCOL, SEARCH_IMAGE_EXTENSIONS } = require("../shared/constants");
 const capture = require("./capture");
 const clipboardService = require("./clipboard");
+const imagesearch = require("./imagesearch");
 const library = require("./library");
 const { UNSATISFIABLE, parseRange } = require("./range");
 const recording = require("./recording");
@@ -73,6 +74,7 @@ function settingsPayload() {
     shortcutStatus: shortcuts.getStatuses(),
     preferences: state.preferences,
     appearance: state.appearance,
+    search: state.search,
     saveDirectory: state.saveDirectory,
     directories: library.directories()
   };
@@ -834,7 +836,8 @@ function registerIpc() {
     const before = settings.get();
     const next = await settings.update({
       preferences: patch.preferences,
-      appearance: patch.appearance
+      appearance: patch.appearance,
+      search: patch.search
     });
 
     if (patch.appearance?.theme && patch.appearance.theme !== before.appearance.theme) {
@@ -944,6 +947,192 @@ function registerIpc() {
 
   ipcMain.handle("settings:open-directory", async () => {
     await shell.openPath(library.getRoot());
+
+    return { ok: true };
+  });
+
+  // ---- reverse image search channels ---------------------------------------
+  // The library is always in scope; the user's picked folders extend it. Every
+  // search runs off a fresh scope snapshot so a folder removed mid-search
+  // cannot keep feeding files into it. Library items hand over their thumbnail
+  // path too: hashing the 520px JPEG is far cheaper than the full capture.
+  function libraryThumbPath(item) {
+    if (!item.thumb) {
+      return null;
+    }
+
+    return path.join(library.getRoot(), ...item.thumb.split("/"));
+  }
+
+  function searchScope() {
+    return {
+      roots: [...(settings.get().search?.folders || [])],
+      libraryCandidates: library
+        .list()
+        .filter((item) => item.type === "image" && !item.trashedAt)
+        .map((item) => ({ id: item.id, path: library.pathFor(item.id), thumbPath: libraryThumbPath(item) }))
+        .filter((candidate) => candidate.path)
+    };
+  }
+
+  function searchResultPayload(result, query = null) {
+    if (result?.ok) {
+      const skipped = result.skippedFolders || [];
+
+      if (skipped.length > 0) {
+        toast(`Skipped ${skipped.length} folder${skipped.length === 1 ? "" : "s"} that could not be read.`, "info");
+      }
+
+      return { ...result, query };
+    }
+
+    if (result?.superseded) {
+      return { ok: false, superseded: true };
+    }
+
+    return {
+      ok: false,
+      message: "That image could not be read. PNG, JPG and BMP files are supported."
+    };
+  }
+
+  ipcMain.handle("search:by-image", async (_event, buffer) => {
+    if (!(buffer instanceof ArrayBuffer || ArrayBuffer.isView(buffer))) {
+      return { ok: false, message: "Drop an image file to search." };
+    }
+
+    const bytes = Buffer.from(
+      buffer instanceof ArrayBuffer
+        ? new Uint8Array(buffer)
+        : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    );
+
+    return searchResultPayload(await imagesearch.searchByBuffer(bytes, searchScope()));
+  });
+
+  ipcMain.handle("search:by-item", async (_event, id) => {
+    const item = itemFromId(id);
+
+    if (!item || item.type !== "image") {
+      return { ok: false, message: "Only screenshots can be searched." };
+    }
+
+    const filePath = library.pathFor(item.id);
+    const thumbPath = libraryThumbPath(item);
+    const query = {
+      name: item.name,
+      preview: await imagesearch.previewFor(filePath),
+      libraryItemId: item.id
+    };
+
+    // Hash the query from the same thumbnail the candidates use, so an exact
+    // duplicate (which also has a thumbnail) scores a true 100%.
+    const scope = searchScope();
+
+    return searchResultPayload(
+      await imagesearch.searchByPath(thumbPath || filePath, {
+        roots: scope.roots,
+        libraryCandidates: scope.libraryCandidates,
+        excludePath: filePath
+      }),
+      query
+    );
+  });
+
+  ipcMain.handle("search:pick-image", async () => {
+    const window = windows.getMainWindow();
+    const picked = await dialog.showOpenDialog(window, {
+      title: "Choose an image to search for",
+      properties: ["openFile"],
+      filters: [{ name: "Images", extensions: SEARCH_IMAGE_EXTENSIONS }]
+    });
+
+    if (picked.canceled || picked.filePaths.length === 0) {
+      return { ok: false, canceled: true };
+    }
+
+    const queryPath = picked.filePaths[0];
+    const query = {
+      name: path.basename(queryPath),
+      preview: await imagesearch.previewFor(queryPath),
+      libraryItemId: null
+    };
+
+    // The pick and the search are one invoke, so the renderer cannot know the
+    // dialog has closed. Push the switch to "searching" the moment a file is
+    // chosen — otherwise the search runs silently behind an unchanged UI.
+    windows.sendToRenderer("app:search-started", query);
+
+    return searchResultPayload(await imagesearch.searchByPath(queryPath, searchScope()), query);
+  });
+
+  ipcMain.handle("search:pick-folders", async () => {
+    const window = windows.getMainWindow();
+    const picked = await dialog.showOpenDialog(window, {
+      title: "Choose folders to include in Reverse Search",
+      defaultPath: settings.get().saveDirectory,
+      properties: ["openDirectory", "multiSelections"]
+    });
+
+    if (picked.canceled || picked.filePaths.length === 0) {
+      return { ok: false, canceled: true };
+    }
+
+    const existing = settings.get().search?.folders || [];
+    await settings.update({ search: { folders: [...new Set([...existing, ...picked.filePaths])] } });
+    sendSettings();
+    toast("Folder added to Reverse Search.", "success");
+
+    return { ok: true, settings: settingsPayload() };
+  });
+
+  ipcMain.handle("search:cancel", () => {
+    imagesearch.cancel();
+
+    return { ok: true };
+  });
+
+  // Opening or revealing a result must never turn into a general "open any
+  // path on this machine" channel: only files inside the library root or a
+  // configured search folder pass.
+  function searchPathAllowed(filePath) {
+    if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
+      return false;
+    }
+
+    const insensitive = process.platform === "win32";
+    const resolved = path.resolve(filePath);
+
+    return [library.getRoot(), ...(settings.get().search?.folders || [])]
+      .map((root) => path.resolve(root))
+      .some((root) => {
+        const target = insensitive ? resolved.toLowerCase() : resolved;
+        const base = insensitive ? root.toLowerCase() : root;
+
+        return target === base || target.startsWith(base + path.sep);
+      });
+  }
+
+  ipcMain.handle("search:open", async (_event, filePath) => {
+    if (!searchPathAllowed(filePath)) {
+      return { ok: false };
+    }
+
+    const error = await shell.openPath(filePath);
+
+    if (error) {
+      toast(error, "error");
+    }
+
+    return { ok: !error };
+  });
+
+  ipcMain.handle("search:reveal", (_event, filePath) => {
+    if (!searchPathAllowed(filePath)) {
+      return { ok: false };
+    }
+
+    shell.showItemInFolder(filePath);
 
     return { ok: true };
   });
@@ -1113,6 +1302,14 @@ async function boot() {
     await library.init(defaultSaveDirectory);
   }
 
+  await imagesearch.init({ userDataDir: app.getPath("userData") });
+
+  // Search progress is push-only; the results themselves travel back through
+  // the invoke that started the search.
+  imagesearch.emitter.on("progress", (payload) => {
+    windows.sendToRenderer("app:search-progress", payload);
+  });
+
   nativeTheme.themeSource = state.appearance.theme;
   registerMediaProtocol();
   hardenSession(session.defaultSession);
@@ -1214,7 +1411,7 @@ if (gotSingleInstanceLock) {
     event.preventDefault();
 
     Promise.race([
-      library.flush().catch(() => {}),
+      Promise.all([library.flush(), imagesearch.flush()]).catch(() => {}),
       new Promise((resolve) => setTimeout(resolve, 2000))
     ]).then(() => app.quit());
   });

@@ -104,3 +104,33 @@ test("a v1 file on disk is upgraded in place on next launch", async () => {
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test("search folders keep absolute paths only and survive disk round trips", async () => {
+  const directory = await tempDir();
+
+  try {
+    await settings.init({ userDataDir: directory, saveDirectory: path.join(directory, "media") });
+
+    const win = process.platform === "win32";
+    const absolute = win ? "C:\\Users\\tito\\Pictures" : "/home/tito/pictures";
+
+    await settings.update({
+      search: { folders: [absolute, "relative/path", "", absolute, null, 42] }
+    });
+
+    assert.deepEqual(settings.get().search, { folders: [absolute] });
+
+    const written = JSON.parse(await fs.readFile(path.join(directory, "settings.json"), "utf8"));
+    assert.deepEqual(written.search, { folders: [absolute] });
+
+    const reloaded = await settings.init({ userDataDir: directory, saveDirectory: path.join(directory, "media") });
+    assert.deepEqual(reloaded.search, { folders: [absolute] });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("normalising without a search section yields the default empty folder list", () => {
+  assert.deepEqual(settings.normalize({}).search, { folders: [] });
+  assert.deepEqual(settings.normalize({ search: { folders: "not-an-array" } }).search, { folders: [] });
+});

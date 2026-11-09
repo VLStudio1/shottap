@@ -16,6 +16,8 @@
       '<rect x="9" y="9" width="12" height="12" rx="2.5"/><path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"/>',
     image:
       '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.6" cy="9.6" r="1.6"/><path d="m21 15.5-4.5-4.5L9 18.5"/>',
+    imageSearch:
+      '<rect x="2.5" y="2.5" width="14.5" height="14.5" rx="2.5"/><circle cx="7" cy="7" r="1.5"/><path d="m4.8 13.2 3.7-3.7 4.8 4.8"/><circle cx="16.8" cy="16.8" r="4.6"/><path d="m20.2 20.2 2.3 2.3"/>',
     video:
       '<rect x="2.5" y="6" width="13" height="12" rx="2.5"/><path d="m15.5 10.2 6-3.2v10l-6-3.2"/>',
     clipboard:

@@ -5,7 +5,7 @@
 // mouse input), the real recorder and the real renderer, then writes a JSON
 // report and window screenshots for both themes.
 
-const { BrowserWindow, app, clipboard, nativeTheme, screen } = require("electron");
+const { BrowserWindow, app, clipboard, nativeImage, nativeTheme, screen } = require("electron");
 const { execFile } = require("child_process");
 const fs = require("fs/promises");
 const path = require("path");
@@ -183,7 +183,7 @@ async function captureWindow(window, fileName) {
 }
 
 async function run(deps) {
-  const { actions, clipboardService, library, recording, settings, shortcuts, windows } = deps;
+  const { actions, capture, clipboardService, library, recording, settings, shortcuts, windows } = deps;
 
   outputDir = process.env.SHOTTAP_SELFTEST_OUT || path.join(app.getPath("temp"), "shottap-selftest");
   await fs.mkdir(outputDir, { recursive: true });
@@ -707,7 +707,7 @@ async function run(deps) {
   });
 
   // ---- renderer ----------------------------------------------------------
-  const views = ["captures", "recordings", "clipboard", "favorites", "trash", "editor", "hotkeys", "general", "appearance", "about"];
+  const views = ["captures", "recordings", "clipboard", "favorites", "trash", "similar", "editor", "hotkeys", "general", "appearance", "about"];
 
   for (const theme of ["light", "dark"]) {
     await step(`Every view renders in ${theme} mode`, async () => {
@@ -930,6 +930,65 @@ async function run(deps) {
     assert(outcome.rows === outcome.total, "the list layout showed a different number of items");
 
     return `${outcome.total} cards, search/filter/sort/list all effective`;
+  });
+
+  await step("Reverse Search finds an exact copy through the real pipeline", async () => {
+    const original = library.list().find((item) => item.type === "image" && !item.trashedAt);
+
+    assert(original, "no live screenshot to search for");
+
+    // An exact byte-for-byte duplicate exercises the whole chain: decode,
+    // dHash, library scanning, matching and the rendered result cards.
+    const bytes = await fs.readFile(library.pathFor(original.id));
+    const duplicate = await library.addImage({
+      buffer: bytes,
+      thumbnail: capture.makeThumbnail(nativeImage.createFromBuffer(bytes)),
+      width: original.width,
+      height: original.height,
+      source: "area"
+    });
+
+    // addImage was called directly in the main process, so the renderer has to
+    // be told about the new item by hand (IPC handlers normally do this).
+    windows.sendToRenderer("app:library", { items: library.list(), sessionItemIds: [], lastCopy: null });
+    await wait(300);
+
+    let outcome;
+
+    try {
+      outcome = await mainWindow.webContents.executeJavaScript(`(async () => {
+        await window.__shottapTest.findSimilarForItem(${JSON.stringify(original.id)});
+        const search = window.__shottapTest.state.searchState;
+        return {
+          status: search.status,
+          view: document.querySelector('.nav-item[aria-current="page"]')?.dataset.view || null,
+          count: search.results.length,
+          best: search.results[0]
+            ? { name: search.results[0].name, similarity: search.results[0].similarity, libraryItemId: search.results[0].libraryItemId }
+            : null,
+          includesSelf: search.results.some((result) => result.libraryItemId === ${JSON.stringify(original.id)}),
+          cards: document.querySelectorAll(".result-card").length,
+          badge: document.querySelector(".similarity-badge")?.textContent || ""
+        };
+      })()`);
+    } finally {
+      // Delete through the real command path so the renderer state stays in sync.
+      await mainWindow.webContents.executeJavaScript(
+        `window.__shottapTest.runItemCommand("delete", ${JSON.stringify(duplicate.id)})`
+      );
+      await mainWindow.webContents.executeJavaScript(`window.__shottapTest.navigate("captures")`);
+    }
+
+    assert(outcome.view === "similar", "Reverse Search did not become the active view");
+    assert(outcome.status === "done", `search finished with status "${outcome.status}"`);
+    assert(outcome.count >= 1, "the exact duplicate was not found");
+    assert(outcome.best && outcome.best.similarity === 100, `best match was ${outcome.best?.similarity}% instead of 100%`);
+    assert(outcome.best?.libraryItemId === duplicate.id, "the match did not point at the duplicated library item");
+    assert(!outcome.includesSelf, "the query image matched itself");
+    assert(outcome.cards === outcome.count, `${outcome.cards} of ${outcome.count} results rendered a card`);
+    assert(/100% match/.test(outcome.badge), `similarity badge said "${outcome.badge}"`);
+
+    return `${outcome.count} match(es), best ${outcome.best.similarity}% via the real IPC + renderer path`;
   });
 
   await step("Recording state drives the recording bar in the UI", async () => {

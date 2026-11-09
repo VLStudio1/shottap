@@ -2113,3 +2113,198 @@ select.field {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==========================================================================
+   Reverse search
+   ========================================================================== */
+.drop-zone {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 26px 28px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  transition: border-color 130ms ease, background 130ms ease;
+}
+
+.drop-zone.drag-over {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+}
+
+.drop-zone-preview {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 148px;
+  height: 100px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.drop-zone-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.drop-zone-icon {
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
+
+.drop-zone-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.drop-zone-text h3 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drop-zone-text p {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.drop-zone-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.search-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--blue);
+  transition: width 160ms ease;
+}
+
+.search-progress-label {
+  flex-shrink: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.result-card {
+  cursor: default;
+}
+
+.result-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.similarity-badge {
+  left: auto;
+  right: 8px;
+  background: var(--blue);
+}
+
+.scope-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.scope-chip .icon {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+.scope-chip.library {
+  border-color: var(--blue-border);
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+.scope-chip.library .icon {
+  color: var(--blue);
+}
+
+.scope-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-chip-remove {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: -4px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.scope-chip-remove:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.scope-chip.add {
+  border-style: dashed;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.scope-chip.add:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.search-progress .button {
+  flex-shrink: 0;
+}

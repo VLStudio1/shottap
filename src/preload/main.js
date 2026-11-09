@@ -43,8 +43,20 @@ contextBridge.exposeInMainWorld("shottap", {
     openDirectory: () => ipcRenderer.invoke("settings:open-directory")
   },
 
+  search: {
+    findByImage: (buffer) => ipcRenderer.invoke("search:by-image", buffer),
+    findByItem: (id) => ipcRenderer.invoke("search:by-item", String(id)),
+    pickImage: () => ipcRenderer.invoke("search:pick-image"),
+    pickFolders: () => ipcRenderer.invoke("search:pick-folders"),
+    cancel: () => ipcRenderer.invoke("search:cancel"),
+    open: (filePath) => ipcRenderer.invoke("search:open", String(filePath)),
+    reveal: (filePath) => ipcRenderer.invoke("search:reveal", String(filePath))
+  },
+
   onLibrary: subscribe("app:library"),
   onSettings: subscribe("app:settings"),
   onRecording: subscribe("app:recording"),
+  onSearchProgress: subscribe("app:search-progress"),
+  onSearchStarted: subscribe("app:search-started"),
   onToast: subscribe("app:toast")
 });

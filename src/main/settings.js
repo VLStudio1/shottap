@@ -10,6 +10,7 @@ const path = require("path");
 const {
   CAPTURE_ACTIONS,
   DEFAULT_PREFERENCES,
+  DEFAULT_SEARCH_FOLDERS,
   DEFAULT_SHORTCUTS,
   RECORDING_FRAME_RATES,
   RECORDING_QUALITIES,
@@ -98,6 +99,31 @@ function normalizeTheme(raw) {
   return THEMES.includes(raw) ? raw : "system";
 }
 
+// Reverse-search folders the user picked. Only absolute paths are kept so a
+// relative value can never make the search walk somewhere unexpected.
+function normalizeSearch(raw) {
+  const folders = Array.isArray(raw?.folders)
+    ? raw.folders
+    : DEFAULT_SEARCH_FOLDERS;
+
+  const seen = new Set();
+  const valid = [];
+
+  for (const folder of folders) {
+    if (typeof folder !== "string" || !folder.trim() || !path.isAbsolute(folder)) {
+      continue;
+    }
+
+    const key = process.platform === "win32" ? folder.toLowerCase() : folder;
+    if (!seen.has(key)) {
+      seen.add(key);
+      valid.push(folder);
+    }
+  }
+
+  return { folders: valid };
+}
+
 // v1 files used { shortcuts: { region, fullScreen, copyAll } } and had no
 // recording/cleanup shortcuts, theme or save directory.
 function migrate(raw) {
@@ -136,6 +162,7 @@ function normalize(raw) {
     shortcuts: normalizeShortcuts(migrated.shortcuts),
     preferences: normalizePreferences(migrated.preferences),
     appearance: { theme: normalizeTheme(migrated.appearance?.theme) },
+    search: normalizeSearch(migrated.search),
     saveDirectory:
       typeof migrated.saveDirectory === "string" && migrated.saveDirectory.trim()
         ? migrated.saveDirectory
@@ -196,6 +223,10 @@ async function update(patch) {
     next.appearance = { theme: normalizeTheme(patch.appearance.theme) };
   }
 
+  if (patch.search) {
+    next.search = normalizeSearch({ ...state.search, ...patch.search });
+  }
+
   if (typeof patch.saveDirectory === "string" && patch.saveDirectory.trim()) {
     next.saveDirectory = patch.saveDirectory;
   }
@@ -215,6 +246,7 @@ module.exports = {
   migrate,
   normalize,
   normalizePreferences,
+  normalizeSearch,
   normalizeShortcuts,
   update
 };
