@@ -6,6 +6,13 @@ This project follows the spirit of [Keep a Changelog](https://keepachangelog.com
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-09
+
+### Security
+
+- Updated the bundled Electron runtime from 42.9.1 to 42.11.18, picking up upstream Chromium and Node.js security fixes (12 known advisories).
+- Updated electron-builder to 26.18.1 and pinned vulnerable build-time transitive dependencies (minimatch, undici); `npm audit` now reports zero vulnerabilities. None of these ship inside the app, which keeps zero runtime dependencies.
+
 ## [0.6.0] - 2026-11-08
 
 ### Added

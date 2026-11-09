@@ -1,6 +1,6 @@
 {
   "name": "shottap",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Keyboard-first screenshots and screen recording for Windows with cleanup shortcuts.",
   "author": "VeraLayer Studio LLC",
   "license": "MIT",
@@ -62,8 +62,14 @@
     }
   },
   "devDependencies": {
-    "electron": "^42.3.3",
-    "electron-builder": "^26.8.1"
+    "electron": "^42.11.18",
+    "electron-builder": "^26.18.1"
+  },
+  "overrides": {
+    "minimatch": "11.0.5",
+    "@electron/get": {
+      "undici": "7.30.2"
+    }
   },
   "dependencies": {}
 }
