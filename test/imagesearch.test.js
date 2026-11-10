@@ -271,6 +271,35 @@ test("whole-computer walks skip system directories", async () => {
   }
 });
 
+test("the parallel hashFiles farm feeds results back through the cache", async () => {
+  const env = await freshSearch();
+
+  try {
+    // Shaped like the decode-window farm: batch in, per-file results out.
+    // The fake also asserts the entries are farm-shaped — a real farm reads
+    // entry.filePath, so a missing field silently nulls every hash.
+    env.io.hashFiles = async (entries, { onResult }) => {
+      for (const entry of entries) {
+        assert.ok(typeof entry.filePath === "string" && entry.filePath === entry.key, "farm entry missing filePath");
+        onResult(entry.key, ZERO_HASH);
+      }
+    };
+
+    await fs.writeFile(path.join(env.scanDir, "query.png"), `hash:${ZERO_HASH}`);
+    await fs.writeFile(path.join(env.scanDir, "a.png"), "content does not matter");
+    await fs.writeFile(path.join(env.scanDir, "b.png"), "content does not matter");
+
+    const result = await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), { roots: [env.scanDir] });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.results.map((match) => match.name).sort(), ["a.png", "b.png"]);
+    assert.equal(result.truncated, false);
+    assert.equal(env.io.calls.length, 1, "only the query should use the sequential hashFile");
+  } finally {
+    await env.cleanup();
+  }
+});
+
 test("drive roots are probed by letter and only readable ones are kept", async () => {
   const readable = new Set(["C:\\", "D:\\"]);
   const access = async (candidate) => {

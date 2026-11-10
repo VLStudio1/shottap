@@ -1365,6 +1365,8 @@ async function boot() {
   // The hidden recorder window would otherwise keep the process alive after the
   // user closes ShotTap. It is kept only while a recording is running.
   mainWindow.on("closed", () => {
+    require("./decodepool").dispose();
+
     if (!recording.isRecording()) {
       windows.closeRecorderWindow();
     }
@@ -1435,6 +1437,7 @@ if (gotSingleInstanceLock) {
   app.on("will-quit", (event) => {
     shortcuts.teardown();
     clipboardService.shutdown();
+    require("./decodepool").dispose();
 
     if (flushingBeforeQuit) {
       return;

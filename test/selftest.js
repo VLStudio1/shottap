@@ -963,6 +963,9 @@ async function run(deps) {
           status: search.status,
           view: document.querySelector('.nav-item[aria-current="page"]')?.dataset.view || null,
           count: search.results.length,
+          scanned: search.scanned,
+          message: search.message || "",
+          results: search.results.slice(0, 5).map((result) => ({ name: result.name, similarity: result.similarity, libraryItemId: result.libraryItemId })),
           best: search.results[0]
             ? { name: search.results[0].name, similarity: search.results[0].similarity, libraryItemId: search.results[0].libraryItemId }
             : null,
@@ -980,10 +983,15 @@ async function run(deps) {
     }
 
     assert(outcome.view === "similar", "Reverse Search did not become the active view");
-    assert(outcome.status === "done", `search finished with status "${outcome.status}"`);
-    assert(outcome.count >= 1, "the exact duplicate was not found");
+    assert(outcome.status === "done", `search finished with status "${outcome.status}" (${outcome.message})`);
+    assert(outcome.count >= 1, `the exact duplicate was not found — scanned ${outcome.scanned}, results: ${JSON.stringify(outcome.results)}`);
     assert(outcome.best && outcome.best.similarity === 100, `best match was ${outcome.best?.similarity}% instead of 100%`);
-    assert(outcome.best?.libraryItemId === duplicate.id, "the match did not point at the duplicated library item");
+    // Repeated captures of an unchanged desktop can legitimately tie at 100%;
+    // the byte-identical duplicate must be among those perfect matches.
+    assert(
+      outcome.results.some((result) => result.libraryItemId === duplicate.id && result.similarity === 100),
+      `the duplicated library item was not matched at 100% — results: ${JSON.stringify(outcome.results)}`
+    );
     assert(!outcome.includesSelf, "the query image matched itself");
     assert(outcome.cards === outcome.count, `${outcome.cards} of ${outcome.count} results rendered a card`);
     assert(/100% match/.test(outcome.badge), `similarity badge said "${outcome.badge}"`);

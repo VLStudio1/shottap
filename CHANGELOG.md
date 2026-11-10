@@ -6,6 +6,13 @@ This project follows the spirit of [Keep a Changelog](https://keepachangelog.com
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-09
+
+### Changed
+
+- Reverse Search now decodes images in parallel across hidden renderers (about 2.5x faster hashing on a typical multi-core machine), and hashes every image — queries included — through one shared resampling pipeline so comparisons stay exact.
+- Folder walks stat files in small parallel batches, so scanning very large folders no longer spends seconds before the first image is compared.
+
 ## [0.6.2] - 2026-11-09
 
 ### Added

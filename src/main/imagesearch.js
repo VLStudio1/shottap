@@ -54,12 +54,38 @@ function hashFromImage(image) {
 
 function defaultIo() {
   return {
-    hashFile: async (filePath) => hashFromImage(
-      require("electron").nativeImage.createFromPath(filePath)
-    ),
-    hashBuffer: async (buffer) => hashFromImage(
-      require("electron").nativeImage.createFromBuffer(buffer)
-    ),
+    // Every hash goes through the decode farm so query and candidates share
+    // one resampling pipeline — mixing pipelines costs a few Hamming bits of
+    // systematic divergence on every comparison. nativeImage remains as the
+    // fallback when the farm cannot start.
+    hashFile: async (filePath) => {
+      try {
+        const buffer = await fs.readFile(filePath);
+        const farmed = await require("./decodepool").hashBuffer(buffer);
+
+        if (farmed) {
+          return farmed;
+        }
+      } catch (_error) {
+        // Falls through to nativeImage below.
+      }
+
+      return hashFromImage(require("electron").nativeImage.createFromPath(filePath));
+    },
+    hashBuffer: async (buffer) => {
+      const farmed = await require("./decodepool").hashBuffer(buffer);
+
+      if (farmed) {
+        return farmed;
+      }
+
+      return hashFromImage(require("electron").nativeImage.createFromBuffer(buffer));
+    },
+    // Parallel decode through the hidden renderers (see decodepool.js).
+    // Tests inject their own io without this and get the sequential fallback.
+    hashFiles: async (entries, callbacks) => {
+      await require("./decodepool").hashFiles(entries, callbacks);
+    },
     previewFor: async (filePath) => {
       const image = require("electron").nativeImage.createFromPath(filePath);
       if (image.isEmpty()) {
@@ -218,6 +244,8 @@ async function collectImageFiles(rootDirectories, { excludeSystemDirs = false } 
       continue;
     }
 
+    const imageEntries = [];
+
     for (const entry of entries) {
       const full = path.join(directory, entry.name);
 
@@ -230,13 +258,33 @@ async function collectImageFiles(rootDirectories, { excludeSystemDirs = false } 
           queue.push(full);
         }
       } else if (entry.isFile() && hasImageExtension(entry.name)) {
-        try {
-          const stat = await fs.stat(full);
-          if (stat.size > 0 && stat.size <= SEARCH_MAX_FILE_BYTES) {
-            files.push({ path: full, size: stat.size, mtimeMs: Math.round(stat.mtimeMs) });
+        imageEntries.push(entry);
+      }
+    }
+
+    // Stats run in small chunks: sequential awaited stats made walking a
+    // 45k-file folder take seconds; chunked concurrency cuts that to a
+    // fraction while keeping the event loop breathing.
+    for (let offset = 0; offset < imageEntries.length; offset += 16) {
+      const chunk = imageEntries.slice(offset, offset + 16);
+      const stats = await Promise.all(
+        chunk.map(async (entry) => {
+          const full = path.join(directory, entry.name);
+          try {
+            const stat = await fs.stat(full);
+            if (stat.size > 0 && stat.size <= SEARCH_MAX_FILE_BYTES) {
+              return { path: full, size: stat.size, mtimeMs: Math.round(stat.mtimeMs) };
+            }
+          } catch (_error) {
+            // The file vanished mid-scan; nothing to keep.
           }
-        } catch (_error) {
-          // The file vanished mid-scan; nothing to keep.
+          return null;
+        })
+      );
+
+      for (const file of stats) {
+        if (file) {
+          files.push(file);
         }
       }
     }
@@ -287,57 +335,88 @@ async function statLibraryCandidates(libraryCandidates, myGeneration) {
   return files;
 }
 
-// Each decode yields the event loop before the next one: a full-resolution
-// decode allocates tens of megabytes and can take ~100 ms, and running them
-// back to back froze captures, IPC and window painting while the RSS climbed
-// into gigabytes. One image at a time keeps the app and the system responsive.
-//
-// At most `maxFiles` images are DECODED per search — but files whose hash is
-// already cached keep being compared for free, so repeat searches cover the
-// whole scope while only paying for images that are new or changed.
+// Decoding is the expensive stage, so it runs under a budget: at most
+// `maxFiles` images are DECODED per search, while files whose hash is already
+// cached are compared for free — repeat searches cover the whole scope and
+// each one indexes another newest-first slice. When the io provides a parallel
+// hashFiles farm the decodes run across hidden renderers; otherwise (tests,
+// fallback) they run one at a time with a yield after each.
 async function hashCandidates(candidates, myGeneration) {
+  const cancelled = () => myGeneration !== generation;
   const hashed = [];
+  const toDecode = [];
   let processed = 0;
   let decoded = 0;
   let budgetExhausted = false;
 
   for (const candidate of candidates) {
-    if (myGeneration !== generation) {
+    if (cancelled()) {
       return { superseded: true, hashed: [], processed, budgetExhausted: false };
     }
 
     const hashSource = candidate.hashSourcePath || candidate.path;
     const cached = cache.get(hashSource);
-    let hash = null;
 
     if (cached && cached.size === candidate.size && cached.mtimeMs === candidate.mtimeMs) {
-      hash = cached.hash;
+      hashed.push({ ...candidate, hash: cached.hash });
+      processed += 1;
+      emitter.emit("progress", { phase: "hash", scanned: processed, total: candidates.length, matched: -1 });
     } else if (decoded >= maxFiles) {
-      // Out of decode budget: this file is skipped this pass, but the walk
-      // continues so already-cached files further down are still compared.
+      // Out of decode budget: examined, but skipped this pass.
       budgetExhausted = true;
+      processed += 1;
     } else {
-      try {
-        hash = await io.hashFile(hashSource);
-      } catch (_error) {
-        hash = null;
-      }
-
-      if (hash) {
-        cache.set(hashSource, { hash, size: candidate.size, mtimeMs: candidate.mtimeMs });
-        schedulePersist();
-      }
-
+      // `key` identifies the result; `filePath` is what the decode farm reads.
+      toDecode.push({ key: hashSource, filePath: hashSource, candidate });
       decoded += 1;
-      await new Promise((resolve) => setImmediate(resolve));
     }
+  }
 
+  const pendingByKey = new Map(toDecode.map((entry) => [entry.key, entry]));
+
+  const applyDecoded = (entry, hash) => {
     if (hash) {
-      hashed.push({ ...candidate, hash });
+      cache.set(entry.key, { hash, size: entry.candidate.size, mtimeMs: entry.candidate.mtimeMs });
+      schedulePersist();
+      hashed.push({ ...entry.candidate, hash });
     }
 
     processed += 1;
     emitter.emit("progress", { phase: "hash", scanned: processed, total: candidates.length, matched: -1 });
+  };
+
+  if (toDecode.length > 0 && !cancelled()) {
+    if (typeof io.hashFiles === "function") {
+      await io.hashFiles(toDecode, {
+        onResult: (key, hash) => {
+          const entry = pendingByKey.get(key);
+          if (entry) {
+            applyDecoded(entry, hash);
+          }
+        },
+        isCancelled: cancelled
+      });
+    } else {
+      for (const entry of toDecode) {
+        if (cancelled()) {
+          break;
+        }
+
+        let hash = null;
+        try {
+          hash = await io.hashFile(entry.key);
+        } catch (_error) {
+          hash = null;
+        }
+
+        applyDecoded(entry, hash);
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    }
+  }
+
+  if (cancelled()) {
+    return { superseded: true, hashed: [], processed, budgetExhausted: false };
   }
 
   return { hashed, processed, budgetExhausted };
