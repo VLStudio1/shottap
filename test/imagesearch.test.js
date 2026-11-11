@@ -300,6 +300,63 @@ test("the parallel hashFiles farm feeds results back through the cache", async (
   }
 });
 
+test("isInside tolerates drive roots, trailing separators and case variance", () => {
+  assert.equal(imagesearch.isInside("C:\\Users\\tito\\pic.png", "C:\\"), true);
+  assert.equal(imagesearch.isInside("c:\\users\\TITO\\pic.png", "C:\\"), true);
+  assert.equal(imagesearch.isInside("C:\\pic.png", "C:\\"), true);
+  assert.equal(imagesearch.isInside("C:\\Users", "C:\\Users\\"), true);
+  assert.equal(imagesearch.isInside("D:\\pic.png", "C:\\"), false);
+  // A string prefix that is not a path boundary must not pass.
+  assert.equal(imagesearch.isInside("C:\\Users2\\pic.png", "C:\\Users"), false);
+});
+
+test("excluded directories and multi-path exclusions keep noise out of results", async () => {
+  const env = await freshSearch();
+
+  try {
+    await fs.writeFile(path.join(env.scanDir, "query.png"), `hash:${ZERO_HASH}`);
+    const thumbs = path.join(env.scanDir, "Thumbnails");
+    await fs.mkdir(thumbs);
+    await fs.writeFile(path.join(thumbs, "thumb-dup.png"), `hash:${ZERO_HASH}`);
+    await fs.writeFile(path.join(env.scanDir, "real-dup.png"), `hash:${ZERO_HASH}`);
+
+    const result = await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), {
+      roots: [env.scanDir],
+      excludeDirs: [thumbs],
+      excludePath: [path.join(env.scanDir, "query.png"), path.join(thumbs, "would-be-self.png")]
+    });
+
+    assert.deepEqual(result.results.map((match) => match.name), ["real-dup.png"]);
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test("case-variant roots do not walk the same tree twice", async () => {
+  const env = await freshSearch();
+
+  try {
+    await fs.writeFile(path.join(env.scanDir, "query.png"), `hash:${ZERO_HASH}`);
+    const dup = path.join(env.scanDir, "dup.png");
+    await fs.writeFile(dup, `hash:${ZERO_HASH}`);
+
+    const variant = env.scanDir.toUpperCase() === env.scanDir
+      ? env.scanDir.toLowerCase()
+      : env.scanDir.toUpperCase();
+
+    const result = await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), {
+      roots: [env.scanDir, variant]
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.results.length, 1);
+    const dupDecodes = env.io.calls.filter((call) => call.toLowerCase() === dup.toLowerCase()).length;
+    assert.equal(dupDecodes, 1, "the same file was decoded more than once via case-variant roots");
+  } finally {
+    await env.cleanup();
+  }
+});
+
 test("drive roots are probed by letter and only readable ones are kept", async () => {
   const readable = new Set(["C:\\", "D:\\"]);
   const access = async (candidate) => {
@@ -309,6 +366,54 @@ test("drive roots are probed by letter and only readable ones are kept", async (
   };
 
   assert.deepEqual(await imagesearch.listDriveRoots(access), ["C:\\", "D:\\"]);
+});
+
+test("the hash cache keeps accumulating across searches, capped only at its own limit", async () => {
+  const env = await freshSearch();
+
+  try {
+    await imagesearch.init({ userDataDir: env.userDataDir, io: env.io, maxFiles: 2, cacheMax: 3 });
+
+    await fs.writeFile(path.join(env.scanDir, "query.png"), `hash:${ZERO_HASH}`);
+    const day = 86400000;
+
+    for (const [index, name] of ["oldest.png", "mid-old.png", "mid-new.png", "newest.png"].entries()) {
+      await fs.writeFile(path.join(env.scanDir, name), `hash:${ZERO_HASH}`);
+      const at = new Date(Date.now() - (4 - index) * day);
+      await fs.utimes(path.join(env.scanDir, name), at, at);
+    }
+
+    // Two searches at a decode budget of 2 index all four files; the persist
+    // step prunes to the cache's own cap (3) — crucially NOT to the decode
+    // budget (2), which is the regression this test guards against.
+    await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), { roots: [env.scanDir] });
+    await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), { roots: [env.scanDir] });
+    await imagesearch.flush();
+
+    const written = JSON.parse(await fs.readFile(path.join(env.userDataDir, "search-cache.json"), "utf8"));
+    assert.equal(Object.keys(written.entries).length, 3, "cache was pruned to something other than its own cap");
+
+    // A reload keeps the survivors; the cap still prunes after another search.
+    await imagesearch.init({ userDataDir: env.userDataDir, io: fakeIo(), maxFiles: 2, cacheMax: 3 });
+    const result = await imagesearch.searchByPath(path.join(env.scanDir, "query.png"), { roots: [env.scanDir] });
+    assert.equal(result.ok, true);
+
+    await imagesearch.flush();
+    const pruned = JSON.parse(await fs.readFile(path.join(env.userDataDir, "search-cache.json"), "utf8"));
+    assert.ok(Object.keys(pruned.entries).length <= 3, "the cache cap did not prune");
+    assert.ok(Object.keys(pruned.entries).length >= 2, "the cache was pruned below what a single search should keep");
+  } finally {
+    await env.cleanup();
+  }
+});
+
+test("the cache cap cannot silently regress to the per-search decode budget", () => {
+  const { SEARCH_CACHE_MAX, SEARCH_MAX_FILES } = require("../src/shared/constants");
+
+  assert.ok(
+    SEARCH_CACHE_MAX >= SEARCH_MAX_FILES * 10,
+    `cache cap ${SEARCH_CACHE_MAX} is too close to the decode budget ${SEARCH_MAX_FILES} — progressive indexing would not survive restarts`
+  );
 });
 
 test("library candidates hash from their thumbnail when one exists", async () => {

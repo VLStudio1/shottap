@@ -5,7 +5,7 @@ const path = require("path");
 const { Readable } = require("stream");
 const { fileURLToPath, pathToFileURL } = require("url");
 
-const { CAPTURE_ACTIONS, MEDIA_PROTOCOL, SEARCH_IMAGE_EXTENSIONS } = require("../shared/constants");
+const { CAPTURE_ACTIONS, MEDIA_PROTOCOL, SEARCH_IMAGE_EXTENSIONS, SEARCH_MAX_FILE_BYTES } = require("../shared/constants");
 const capture = require("./capture");
 const clipboardService = require("./clipboard");
 const imagesearch = require("./imagesearch");
@@ -975,6 +975,10 @@ function registerIpc() {
     return {
       roots,
       excludeSystemDirs: wholeComputer,
+      // Library thumbnails are derived data: once the library tree is inside
+      // the walk (always, in whole-computer mode) every capture would match
+      // its own thumbnail at 100%.
+      excludeDirs: [library.directories().thumbnails],
       libraryCandidates: library
         .list()
         .filter((item) => item.type === "image" && !item.trashedAt)
@@ -1004,7 +1008,7 @@ function registerIpc() {
     };
   }
 
-  ipcMain.handle("search:by-image", async (_event, buffer) => {
+  ipcMain.handle("search:by-image", async (_event, buffer, queryPath) => {
     if (!(buffer instanceof ArrayBuffer || ArrayBuffer.isView(buffer))) {
       return { ok: false, message: "Drop an image file to search." };
     }
@@ -1015,12 +1019,22 @@ function registerIpc() {
         : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     );
 
+    if (bytes.length > SEARCH_MAX_FILE_BYTES) {
+      return { ok: false, message: "That image is larger than 50 MB — too large to compare." };
+    }
+
+    // The dropped file's path (when the sandbox exposes one) is only ever used
+    // to keep the file from matching itself.
+    const selfPath = requireString(queryPath) || undefined;
     const scope = await searchScope();
+
     return searchResultPayload(
       await imagesearch.searchByBuffer(bytes, {
         roots: scope.roots,
         excludeSystemDirs: scope.excludeSystemDirs,
-        libraryCandidates: scope.libraryCandidates
+        excludeDirs: scope.excludeDirs,
+        libraryCandidates: scope.libraryCandidates,
+        excludePath: selfPath
       })
     );
   });
@@ -1041,15 +1055,19 @@ function registerIpc() {
     };
 
     // Hash the query from the same thumbnail the candidates use, so an exact
-    // duplicate (which also has a thumbnail) scores a true 100%.
+    // duplicate (which also has a thumbnail) scores a true 100%. Both the
+    // capture and its thumbnail are excluded from the results — the thumbnail
+    // file would otherwise be a guaranteed self-match whenever the library
+    // tree is inside the walk.
     const scope = await searchScope();
 
     return searchResultPayload(
       await imagesearch.searchByPath(thumbPath || filePath, {
         roots: scope.roots,
         excludeSystemDirs: scope.excludeSystemDirs,
+        excludeDirs: scope.excludeDirs,
         libraryCandidates: scope.libraryCandidates,
-        excludePath: filePath
+        excludePath: [filePath, thumbPath].filter(Boolean)
       }),
       query
     );
@@ -1085,6 +1103,7 @@ function registerIpc() {
       await imagesearch.searchByPath(queryPath, {
         roots: scope.roots,
         excludeSystemDirs: scope.excludeSystemDirs,
+        excludeDirs: scope.excludeDirs,
         libraryCandidates: scope.libraryCandidates
       }),
       query
@@ -1118,11 +1137,15 @@ function registerIpc() {
   });
 
   // Opening or revealing a result must never turn into a general "open any
-  // path on this machine" channel: only files inside the library root, a
-  // configured search folder, or — while the whole-computer toggle is on — a
-  // fixed drive, pass.
+  // path on this machine" channel: only image files inside the library root,
+  // a configured search folder, or — while the whole-computer toggle is on —
+  // a fixed drive, pass.
   async function searchPathAllowed(filePath) {
     if (typeof filePath !== "string" || !path.isAbsolute(filePath)) {
+      return false;
+    }
+
+    if (!imagesearch.hasImageExtension(filePath)) {
       return false;
     }
 
@@ -1133,17 +1156,7 @@ function registerIpc() {
       allowed.push(...(await imagesearch.listDriveRoots()));
     }
 
-    const insensitive = process.platform === "win32";
-    const resolved = path.resolve(filePath);
-
-    return allowed
-      .map((root) => path.resolve(root))
-      .some((root) => {
-        const target = insensitive ? resolved.toLowerCase() : resolved;
-        const base = insensitive ? root.toLowerCase() : root;
-
-        return target === base || target.startsWith(base + path.sep);
-      });
+    return allowed.some((root) => imagesearch.isInside(filePath, root));
   }
 
   ipcMain.handle("search:open", async (_event, filePath) => {

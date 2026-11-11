@@ -116,6 +116,9 @@
   // first so dropping a non-image gets a clear message instead of a decode
   // failure from the main process.
   const SEARCHABLE_EXTENSIONS = ["png", "jpg", "jpeg", "bmp"];
+  // Mirrors SEARCH_MAX_FILE_BYTES: the query image is read, IPC-shipped and
+  // decoded, so it gets the same cap as searched files.
+  const QUERY_MAX_BYTES = 50 * 1024 * 1024;
 
   const elements = {
     nav: document.getElementById("nav"),
@@ -787,11 +790,20 @@
     let buffer;
 
     try {
+      if (file.size > QUERY_MAX_BYTES) {
+        showToast({ message: "That image is larger than 50 MB — too large to compare.", tone: "error" });
+        return;
+      }
+
       buffer = await file.arrayBuffer();
     } catch (_error) {
       showToast({ message: "That file could not be read.", tone: "error" });
       return;
     }
+
+    // Knowing the dropped file's path lets the search exclude the file itself
+    // from its own results when it lives inside the search scope.
+    const queryPath = typeof api.search.pathForFile === "function" ? api.search.pathForFile(file) : "";
 
     setQueryPreview({ name: file.name, preview: URL.createObjectURL(file) });
     state.searchState.status = "searching";
@@ -806,7 +818,7 @@
     let result;
 
     try {
-      result = await api.search.findByImage(buffer);
+      result = await api.search.findByImage(buffer, queryPath);
     } catch (_error) {
       result = { ok: false, message: "The search failed unexpectedly. Please try again." };
     }
@@ -1497,7 +1509,13 @@
           render();
         }
       } else if (command === "search-browse") {
-        const result = await api.search.pickImage();
+        let result;
+
+        try {
+          result = await api.search.pickImage();
+        } catch (_error) {
+          result = { ok: false, message: "The search failed unexpectedly. Please try again." };
+        }
 
         if (!result?.canceled) {
           applySearchResult(result);

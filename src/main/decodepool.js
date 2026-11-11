@@ -30,6 +30,7 @@ let creating = null;
 let disposed = false;
 let requestId = 0;
 let idleTimer = null;
+let activeJobs = 0;
 
 // Workers linger briefly after a search so back-to-back searches reuse them,
 // then tear down so an idle app carries no extra renderers.
@@ -42,7 +43,12 @@ function scheduleIdleTeardown() {
 
   idleTimer = setTimeout(() => {
     idleTimer = null;
-    dispose();
+    // Only tear down when nothing is decoding. A superseded search finishing
+    // after the live one started must not arm a timer that disposes the farm
+    // out from under the live search.
+    if (activeJobs === 0) {
+      dispose();
+    }
   }, IDLE_TEARDOWN_MS);
   idleTimer.unref();
 }
@@ -73,26 +79,34 @@ async function createWorkers() {
   const parent = windows.getMainWindow();
   const created = [];
 
-  for (let index = 0; index < WORKER_COUNT; index += 1) {
-    const window = new BrowserWindow({
-      show: false,
-      parent: parent || undefined,
-      // The main window is often hidden while a search runs; throttling would
-      // starve the decoders exactly when they should be working hardest.
-      webPreferences: {
-        preload: path.join(RENDERER_ROOT, "..", "preload", "decoder.js"),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        backgroundThrottling: false
-      }
-    });
+  try {
+    for (let index = 0; index < WORKER_COUNT; index += 1) {
+      const window = new BrowserWindow({
+        show: false,
+        parent: parent || undefined,
+        // The main window is often hidden while a search runs; throttling would
+        // starve the decoders exactly when they should be working hardest.
+        webPreferences: {
+          preload: path.join(RENDERER_ROOT, "..", "preload", "decoder.js"),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          backgroundThrottling: false
+        }
+      });
 
-    await window.loadURL(`${MEDIA_PROTOCOL}://app/decode.html`);
-    created.push({ window, pending: new Map() });
+      await window.loadURL(`${MEDIA_PROTOCOL}://app/decode.html`);
+      created.push({ window, pending: new Map() });
+    }
+
+    return created;
+  } catch (error) {
+    // A half-created farm must not leak hidden windows nobody tracks.
+    for (const worker of created) {
+      worker.window.destroy();
+    }
+    throw error;
   }
-
-  return created;
 }
 
 function ensureWorkers() {
@@ -110,6 +124,16 @@ function ensureWorkers() {
   if (!creating) {
     creating = createWorkers()
       .then((created) => {
+        // dispose() may have run while creation was in flight (the main
+        // window closed); installing the workers anyway would revive a farm
+        // nobody tears down.
+        if (disposed) {
+          for (const worker of created) {
+            worker.window.destroy();
+          }
+          return;
+        }
+
         workers = created;
       })
       .finally(() => {
@@ -139,8 +163,9 @@ function dispose() {
   workers = [];
 }
 
-// Sends one file to a worker and resolves with 9x8 RGBA pixels (or null).
-function requestDecode(worker, buffer) {
+// Sends one file to a worker and resolves with 9x8 RGBA pixels, or a JPEG
+// buffer in "preview" mode, or null on failure.
+function requestDecode(worker, buffer, mode) {
   requestId += 1;
   const id = requestId;
 
@@ -153,12 +178,18 @@ function requestDecode(worker, buffer) {
     worker.pending.set(id, (payload) => {
       clearTimeout(timeout);
       const result = payload?.results?.find((entry) => entry.id === id);
-      resolve(result && result.ok ? result.pixels : null);
+
+      if (!result || !result.ok) {
+        resolve(null);
+        return;
+      }
+
+      resolve(result.pixels ?? result.jpeg ?? null);
     });
 
     worker.window.webContents.send("decode:batch", {
       batchId: id,
-      files: [{ id, buffer }]
+      files: [{ id, buffer, mode }]
     });
   });
 }
@@ -173,6 +204,8 @@ async function hashFiles(entries, { onResult, isCancelled }) {
   if (workers.length === 0) {
     return;
   }
+
+  activeJobs += 1;
 
   let index = 0;
 
@@ -212,10 +245,14 @@ async function hashFiles(entries, { onResult, isCancelled }) {
     }
   };
 
-  await Promise.all(workers.map((worker) => pump(worker)));
+  try {
+    await Promise.all(workers.map((worker) => pump(worker)));
+  } finally {
+    activeJobs -= 1;
 
-  if (!disposed && workers.length > 0) {
-    scheduleIdleTeardown();
+    if (!disposed && workers.length > 0) {
+      scheduleIdleTeardown();
+    }
   }
 }
 
@@ -237,9 +274,30 @@ async function hashBuffer(buffer) {
   }
 }
 
+// Small JPEG data-URL preview of a file, decoded by the farm so the main
+// process never blocks building result cards. Resolves null when the farm is
+// unavailable so callers can fall back to nativeImage.
+async function previewFile(filePath) {
+  try {
+    const buffer = await fs.readFile(filePath);
+    await ensureWorkers();
+
+    if (workers.length === 0) {
+      return null;
+    }
+
+    const jpeg = await requestDecode(workers[0], buffer, "preview");
+
+    return jpeg ? `data:image/jpeg;base64,${Buffer.from(jpeg).toString("base64")}` : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
 module.exports = {
   dispose,
   hashBuffer,
   hashFiles,
+  previewFile,
   workerCount: () => WORKER_COUNT
 };

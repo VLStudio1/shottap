@@ -53,6 +53,10 @@ const SEARCH_MATCH_THRESHOLD = 10;
 const SEARCH_MAX_FILE_BYTES = 50 * 1024 * 1024;
 const SEARCH_MAX_COLLECT = 200000;
 const SEARCH_MAX_FILES = 5000;
+// The persistent hash cache must be allowed to outgrow a single search's
+// decode budget — progressive indexing is pointless if every persist throws
+// away all but the last 5,000 hashes.
+const SEARCH_CACHE_MAX = 200000;
 const SEARCH_MAX_RESULTS = 100;
 const SEARCH_PREVIEW_WIDTH = 260;
 const DEFAULT_SEARCH_FOLDERS = [];
@@ -92,6 +96,7 @@ module.exports = {
   MIN_REGION_SIZE,
   RECORDING_FRAME_RATES,
   RECORDING_QUALITIES,
+  SEARCH_CACHE_MAX,
   SEARCH_EXCLUDED_DIR_NAMES,
   SEARCH_IMAGE_EXTENSIONS,
   SEARCH_MATCH_THRESHOLD,

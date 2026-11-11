@@ -12,6 +12,7 @@ const path = require("path");
 
 const { dhash, hamming, similarity } = require("./phash");
 const {
+  SEARCH_CACHE_MAX,
   SEARCH_EXCLUDED_DIR_NAMES,
   SEARCH_IMAGE_EXTENSIONS,
   SEARCH_MATCH_THRESHOLD,
@@ -37,6 +38,7 @@ let writeTimer = null;
 let generation = 0;
 let io = null;
 let maxFiles = SEARCH_MAX_FILES;
+let cacheMax = SEARCH_CACHE_MAX;
 
 function hashFromImage(image) {
   if (!image || image.isEmpty()) {
@@ -87,6 +89,12 @@ function defaultIo() {
       await require("./decodepool").hashFiles(entries, callbacks);
     },
     previewFor: async (filePath) => {
+      const farmed = await require("./decodepool").previewFile(filePath);
+
+      if (farmed) {
+        return farmed;
+      }
+
       const image = require("electron").nativeImage.createFromPath(filePath);
       if (image.isEmpty()) {
         return null;
@@ -100,13 +108,14 @@ function defaultIo() {
   };
 }
 
-async function init({ userDataDir, io: injectedIo, maxFiles: maxFilesOption } = {}) {
+async function init({ userDataDir, io: injectedIo, maxFiles: maxFilesOption, cacheMax: cacheMaxOption } = {}) {
   io = injectedIo || defaultIo();
   cacheFile = userDataDir ? path.join(userDataDir, CACHE_FILE) : "";
   cache = new Map();
-  // Not destructured as `maxFiles` directly: the parameter would shadow the
-  // module-level variable and the cap would silently stay at its default.
+  // Not destructured bare: the parameters would shadow the module-level
+  // variables and the caps would silently stay at their defaults.
   maxFiles = Number.isInteger(maxFilesOption) && maxFilesOption > 0 ? maxFilesOption : SEARCH_MAX_FILES;
+  cacheMax = Number.isInteger(cacheMaxOption) && cacheMaxOption > 0 ? cacheMaxOption : SEARCH_CACHE_MAX;
 
   if (!cacheFile) {
     return;
@@ -147,8 +156,9 @@ function schedulePersist() {
 
 function persist() {
   // Cap the cache so a one-off scan of a huge folder cannot grow it forever;
-  // Map iteration order makes this a drop-the-oldest policy.
-  while (cache.size > SEARCH_MAX_FILES) {
+  // Map iteration order makes this a drop-the-oldest policy. The cap is far
+  // above the per-search decode budget so coverage accumulates across runs.
+  while (cache.size > cacheMax) {
     cache.delete(cache.keys().next().value);
   }
 
@@ -190,6 +200,18 @@ function samePath(a, b) {
     : left === right;
 }
 
+// Whether childPath sits inside rootPath, tolerating drive roots ("C:\"),
+// trailing separators and Windows case variance. A naive
+// startsWith(resolve(root) + sep) fails for drive roots: "C:\" + "\" is a
+// double backslash no real path contains.
+function isInside(childPath, rootPath) {
+  const fold = (value) => (process.platform === "win32" ? value.toLowerCase() : value);
+  const target = fold(path.resolve(String(childPath)));
+  const root = fold(path.resolve(String(rootPath)).replace(/[\\/]+$/, ""));
+
+  return target === root || target.startsWith(root + path.sep);
+}
+
 // Drive letters are probed with a stat rather than listed through WMI or
 // PowerShell: it is dependency-free, and an empty DVD drive simply fails it.
 async function listDriveRoots(access = fs.access) {
@@ -216,7 +238,7 @@ async function listDriveRoots(access = fs.access) {
 // Read failures are split by meaning: a root the caller explicitly named that
 // cannot be read matters to the user, while unreadable sub-directories are
 // routine on broad scans (system folders, junctions) and stay silent.
-async function collectImageFiles(rootDirectories, { excludeSystemDirs = false } = {}) {
+async function collectImageFiles(rootDirectories, { excludeSystemDirs = false, isCancelled } = {}) {
   const files = [];
   const skippedRoots = [];
   let skippedNested = 0;
@@ -224,13 +246,23 @@ async function collectImageFiles(rootDirectories, { excludeSystemDirs = false } 
   const excluded = excludeSystemDirs ? new Set(SEARCH_EXCLUDED_DIR_NAMES) : null;
   const queue = [...roots];
   const seen = new Set();
+  // Windows paths are case-insensitive: the same tree reached through a
+  // case-variant root spelling must not be walked twice.
+  const seenKey = (directory) => (process.platform === "win32" ? directory.toLowerCase() : directory);
 
   while (queue.length > 0 && files.length < SEARCH_MAX_COLLECT) {
+    if (isCancelled && isCancelled()) {
+      // Cancelled or superseded: stop enumerating rather than churning the
+      // disk for a result nobody is waiting for.
+      break;
+    }
+
     const directory = queue.shift();
-    if (seen.has(directory)) {
+    const key = seenKey(directory);
+    if (seen.has(key)) {
       continue;
     }
-    seen.add(directory);
+    seen.add(key);
 
     let entries;
     try {
@@ -318,11 +350,26 @@ async function statLibraryCandidates(libraryCandidates, myGeneration) {
     try {
       const stat = await fs.stat(statTarget);
       if (stat.size > 0 && stat.size <= SEARCH_MAX_FILE_BYTES) {
+        // The hash is keyed by the hash source's stat, but the result card
+        // must show the capture's real size — when hashing from a thumbnail
+        // those are different files by an order of magnitude.
+        let displaySize = stat.size;
+
+        if (candidate.thumbPath) {
+          try {
+            const original = await fs.stat(candidate.path);
+            displaySize = original.size;
+          } catch (_error) {
+            // Original missing; the hash-source size is the best available.
+          }
+        }
+
         files.push({
           path: candidate.path,
           hashSourcePath: statTarget,
-          size: stat.size,
-          mtimeMs: Math.round(stat.mtimeMs),
+          size: displaySize,
+          hashSize: stat.size,
+          hashMtimeMs: Math.round(stat.mtimeMs),
           libraryItemId: candidate.id
         });
       }
@@ -355,9 +402,11 @@ async function hashCandidates(candidates, myGeneration) {
     }
 
     const hashSource = candidate.hashSourcePath || candidate.path;
+    const hashSize = candidate.hashSize ?? candidate.size;
+    const hashMtime = candidate.hashMtimeMs ?? candidate.mtimeMs;
     const cached = cache.get(hashSource);
 
-    if (cached && cached.size === candidate.size && cached.mtimeMs === candidate.mtimeMs) {
+    if (cached && cached.size === hashSize && cached.mtimeMs === hashMtime) {
       hashed.push({ ...candidate, hash: cached.hash });
       processed += 1;
       emitter.emit("progress", { phase: "hash", scanned: processed, total: candidates.length, matched: -1 });
@@ -366,8 +415,9 @@ async function hashCandidates(candidates, myGeneration) {
       budgetExhausted = true;
       processed += 1;
     } else {
-      // `key` identifies the result; `filePath` is what the decode farm reads.
-      toDecode.push({ key: hashSource, filePath: hashSource, candidate });
+      // `key` identifies the result; `filePath` is what the decode farm reads;
+      // the hash* fields carry the cache identity of the hash source.
+      toDecode.push({ key: hashSource, filePath: hashSource, candidate, hashSize, hashMtimeMs: hashMtime });
       decoded += 1;
     }
   }
@@ -376,30 +426,52 @@ async function hashCandidates(candidates, myGeneration) {
 
   const applyDecoded = (entry, hash) => {
     if (hash) {
-      cache.set(entry.key, { hash, size: entry.candidate.size, mtimeMs: entry.candidate.mtimeMs });
+      cache.set(entry.key, { hash, size: entry.hashSize, mtimeMs: entry.hashMtimeMs });
       schedulePersist();
       hashed.push({ ...entry.candidate, hash });
     }
 
     processed += 1;
-    emitter.emit("progress", { phase: "hash", scanned: processed, total: candidates.length, matched: -1 });
+
+    // A superseded search's in-flight farm results still land in the cache
+    // (the work is done and useful) but must not corrupt the live search's
+    // progress display.
+    if (!cancelled()) {
+      emitter.emit("progress", { phase: "hash", scanned: processed, total: candidates.length, matched: -1 });
+    }
   };
 
   if (toDecode.length > 0 && !cancelled()) {
+    let farmed = false;
+
     if (typeof io.hashFiles === "function") {
-      await io.hashFiles(toDecode, {
-        onResult: (key, hash) => {
-          const entry = pendingByKey.get(key);
-          if (entry) {
-            applyDecoded(entry, hash);
-          }
-        },
-        isCancelled: cancelled
-      });
-    } else {
+      try {
+        await io.hashFiles(toDecode, {
+          onResult: (key, hash) => {
+            const entry = pendingByKey.get(key);
+            if (entry) {
+              applyDecoded(entry, hash);
+            }
+          },
+          isCancelled: cancelled
+        });
+        farmed = true;
+      } catch (_error) {
+        // The decode farm failed mid-flight; fall back to sequential so the
+        // search completes instead of erroring out.
+      }
+    }
+
+    if (!farmed) {
       for (const entry of toDecode) {
         if (cancelled()) {
           break;
+        }
+
+        // Entries the farm already hashed landed in the cache; skip those.
+        const cached = cache.get(entry.key);
+        if (cached && cached.size === entry.hashSize && cached.mtimeMs === entry.hashMtimeMs) {
+          continue;
         }
 
         let hash = null;
@@ -422,26 +494,41 @@ async function hashCandidates(candidates, myGeneration) {
   return { hashed, processed, budgetExhausted };
 }
 
-async function runSearch({ queryHash, roots, excludeSystemDirs, libraryCandidates, excludePath }) {
+async function runSearch({ queryHash, roots, excludeSystemDirs, excludeDirs = [], libraryCandidates, excludePath }) {
   const myGeneration = ++generation;
+  const cancelled = () => myGeneration !== generation;
+  const excluded = Array.isArray(excludePath) ? excludePath.filter(Boolean) : excludePath ? [excludePath] : [];
 
   emitter.emit("progress", { phase: "scan", scanned: 0, total: 0, matched: -1 });
 
-  const folderScan = await collectImageFiles(roots, { excludeSystemDirs: Boolean(excludeSystemDirs) });
+  const folderScan = await collectImageFiles(roots, {
+    excludeSystemDirs: Boolean(excludeSystemDirs),
+    isCancelled: cancelled
+  });
   const libraryFiles = await statLibraryCandidates(libraryCandidates, myGeneration);
   if (libraryFiles === null) {
     return { ok: false, superseded: true };
   }
 
-  // The same file can appear twice (a picked folder containing the library);
-  // the library entry wins so results keep their libraryItemId.
+  // The same file can appear twice (a picked folder containing the library,
+  // or case-variant root spellings on Windows); the library entry wins so
+  // results keep their libraryItemId. Keys fold case on Windows for the same
+  // reason.
+  const pathKey = (value) => (process.platform === "win32" ? value.toLowerCase() : value);
   const byPath = new Map();
   for (const file of libraryFiles) {
-    byPath.set(file.path, file);
+    byPath.set(pathKey(file.path), file);
   }
   for (const file of folderScan.files) {
-    if (!byPath.has(file.path)) {
-      byPath.set(file.path, file);
+    // Derived library data (the Thumbnails folder) is pure noise: every
+    // capture would appear twice at 100% once the library is inside scope.
+    if (excludeDirs.some((dir) => isInside(file.path, dir))) {
+      continue;
+    }
+
+    const key = pathKey(file.path);
+    if (!byPath.has(key)) {
+      byPath.set(key, file);
     }
   }
   const candidates = [...byPath.values()];
@@ -456,7 +543,7 @@ async function runSearch({ queryHash, roots, excludeSystemDirs, libraryCandidate
   const matches = [];
 
   for (const candidate of hashed) {
-    if (excludePath && samePath(candidate.path, excludePath)) {
+    if (excluded.some((candidatePath) => samePath(candidate.path, candidatePath))) {
       continue;
     }
 
@@ -507,7 +594,7 @@ async function runSearch({ queryHash, roots, excludeSystemDirs, libraryCandidate
   };
 }
 
-async function searchByBuffer(buffer, { roots = [], excludeSystemDirs = false, libraryCandidates = [] } = {}) {
+async function searchByBuffer(buffer, { roots = [], excludeSystemDirs = false, excludeDirs = [], libraryCandidates = [], excludePath } = {}) {
   let queryHash = null;
   try {
     queryHash = await io.hashBuffer(buffer);
@@ -519,10 +606,10 @@ async function searchByBuffer(buffer, { roots = [], excludeSystemDirs = false, l
     return { ok: false, reason: "undecodable" };
   }
 
-  return runSearch({ queryHash, roots, excludeSystemDirs, libraryCandidates });
+  return runSearch({ queryHash, roots, excludeSystemDirs, excludeDirs, libraryCandidates, excludePath });
 }
 
-async function searchByPath(filePath, { roots = [], excludeSystemDirs = false, libraryCandidates = [], excludePath } = {}) {
+async function searchByPath(filePath, { roots = [], excludeSystemDirs = false, excludeDirs = [], libraryCandidates = [], excludePath } = {}) {
   let queryHash = null;
   try {
     queryHash = await io.hashFile(filePath);
@@ -534,7 +621,7 @@ async function searchByPath(filePath, { roots = [], excludeSystemDirs = false, l
     return { ok: false, reason: "undecodable" };
   }
 
-  return runSearch({ queryHash, roots, excludeSystemDirs, libraryCandidates, excludePath: excludePath || filePath });
+  return runSearch({ queryHash, roots, excludeSystemDirs, excludeDirs, libraryCandidates, excludePath: excludePath || filePath });
 }
 
 function cancel() {
@@ -557,6 +644,7 @@ module.exports = {
   flush,
   hasImageExtension,
   init,
+  isInside,
   listDriveRoots,
   previewFor,
   samePath,

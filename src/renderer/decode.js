@@ -19,21 +19,52 @@
   const tiny = new OffscreenCanvas(DECODE_WIDTH, DECODE_HEIGHT);
   const tinyContext = tiny.getContext("2d", { willReadFrequently: true });
 
+  const PREVIEW_MAX = 260;
+
   async function toPixels(buffer) {
     const stage = await createImageBitmap(new Blob([buffer]), {
       resizeWidth: STAGE_WIDTH,
       resizeHeight: STAGE_HEIGHT,
       resizeQuality: "medium"
     });
-    const bitmap = await createImageBitmap(stage, {
-      resizeWidth: DECODE_WIDTH,
-      resizeHeight: DECODE_HEIGHT,
-      resizeQuality: "medium"
-    });
-    stage.close();
-    tinyContext.drawImage(bitmap, 0, 0);
-    bitmap.close();
-    return tinyContext.getImageData(0, 0, DECODE_WIDTH, DECODE_HEIGHT).data.buffer;
+
+    try {
+      const bitmap = await createImageBitmap(stage, {
+        resizeWidth: DECODE_WIDTH,
+        resizeHeight: DECODE_HEIGHT,
+        resizeQuality: "medium"
+      });
+      tinyContext.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      return tinyContext.getImageData(0, 0, DECODE_WIDTH, DECODE_HEIGHT).data.buffer;
+    } finally {
+      stage.close();
+    }
+  }
+
+  // Result-card previews are decoded here too: generating them on the main
+  // process with nativeImage blocks captures for seconds when a search has
+  // many matches.
+  async function toPreview(buffer) {
+    const source = await createImageBitmap(new Blob([buffer]));
+    const scale = Math.min(1, PREVIEW_MAX / Math.max(source.width, source.height));
+    const width = Math.max(1, Math.round(source.width * scale));
+    const height = Math.max(1, Math.round(source.height * scale));
+
+    try {
+      const small = await createImageBitmap(source, {
+        resizeWidth: width,
+        resizeHeight: height,
+        resizeQuality: "medium"
+      });
+      const canvas = new OffscreenCanvas(width, height);
+      canvas.getContext("2d").drawImage(small, 0, 0);
+      small.close();
+      const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.6 });
+      return blob.arrayBuffer();
+    } finally {
+      source.close();
+    }
   }
 
   window.shottapDecoder.onBatch(async (payload) => {
@@ -41,7 +72,11 @@
 
     for (const file of payload.files) {
       try {
-        results.push({ id: file.id, ok: true, pixels: await toPixels(file.buffer) });
+        if (file.mode === "preview") {
+          results.push({ id: file.id, ok: true, jpeg: await toPreview(file.buffer) });
+        } else {
+          results.push({ id: file.id, ok: true, pixels: await toPixels(file.buffer) });
+        }
       } catch (_error) {
         results.push({ id: file.id, ok: false });
       }
